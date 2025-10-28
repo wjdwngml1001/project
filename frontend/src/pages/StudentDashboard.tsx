@@ -1,93 +1,133 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useApp } from '../store'
-import ToDoCard from '../components/ToDoCard'
-import { plan } from '../api/mock'
-import { useEffect } from 'react'
-import { connectSocket, getSocket } from '../realtime/socket'
-import Toast from '../components/Toast'
-
-const [toast, setToast] = useState<string|null>(null)
-useEffect(()=>{
-  const s = getSocket()
-  const handler = (p:any) => setToast(p.message)
-  s?.on('broadcast', handler)
-  return () => { s?.off('broadcast', handler) }
-}, [])
-
+import { useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { useApp } from "../store"
+import { getSocket } from "../realtime/socket"
+import Toast from "../components/Toast"
 
 export default function StudentDashboard() {
-  const classId = '3A'
-  const studentId = 'S01'
-
-  useEffect(() => {
-    const s = connectSocket('student', classId, studentId)
-    s.emit('student:state', { classId, studentId, screen: 'dashboard', status: 'ok' })
-  }, [])
-  
+  const [goal, setGoal] = useState("")
+  const [toast, setToast] = useState<string | null>(null)
   const nav = useNavigate()
-  const { nl, level, setNL, setLevel, tasks, suggestions, setPlan } = useApp()
-  const [loading, setLoading] = useState(false)
-  const [hint, setHint] = useState<string | null>(null)
+  const { setSuggestions } = useApp()
 
-  async function onConvert() {
-    setLoading(true)
-    const res = await plan(nl, level)
-    setPlan(res.tasks, res.suggestions)
-    setLoading(false)
-    setHint('계획이 생성되었습니다. 이제 코딩 화면에서 조립을 시작해 보세요!')
+  const onGenerate = () => {
+    if (!goal.trim()) {
+      setToast("학습 목표를 입력해주세요.")
+      return
+    }
+
+    const blocks = [
+      { block: "when_start", params: [] },
+      { block: "move_steps", params: [10] },
+      { block: "say", params: ["안녕!", 2] },
+    ]
+    setSuggestions(blocks)
+    getSocket()?.emit("student:goal", { goal, blocks })
+    setToast("목표에 맞는 추천 블록이 생성되었습니다!")
   }
 
   return (
-    <div className="container">
-      <div className="left">
-        <div className="h1">학생 대시보드 (계획/추천/힌트)</div>
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        overflow: "hidden",
+        background: "#f8fafc",
+        fontFamily: "Pretendard, sans-serif",
+      }}
+    >
+      {/* 좌측 입력창 */}
+      <div
+        style={{
+          flex: 3.5,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-start",
+          padding: "20px 30px 10px 30px",
+          borderRight: "1px solid #e5e7eb",
+        }}
+      >
+        <h2 style={{ fontSize: "1.3rem", margin: 0, marginBottom: 8 }}>🧠 학습 목표 입력</h2>
+        <p style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: 10 }}>
+          예: “고양이가 움직이며 인사하는 프로그램 만들기”
+        </p>
 
-        <div className="card">
-          <div className="small">자연어 입력</div>
-          <textarea className="input" rows={4} value={nl} onChange={e=>setNL(e.target.value)} />
-          <div className="row" style={{marginTop:8}}>
-            <select className="badge" value={level} onChange={e=>setLevel(e.target.value as any)}>
-              <option value="A">레벨 A(저학년)</option>
-              <option value="B">레벨 B(고학년)</option>
-            </select>
-            <button className="btn" onClick={onConvert} disabled={loading}>
-              {loading ? '변환 중…' : '계획 만들기'}
-            </button>
-            <button className="btn" onClick={()=>nav('/student/code')}>코딩하러 가기 →</button>
-          </div>
-          {hint && <div className="small" style={{marginTop:8}}>{hint}</div>}
-        </div>
+        <textarea
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder="학습 목표를 입력하세요..."
+          style={{
+            flex: 1,
+            resize: "none",
+            fontSize: "1rem",
+            padding: "10px 12px",
+            borderRadius: 6,
+            border: "1px solid #d1d5db",
+            background: "white",
+            lineHeight: 1.5,
+            height: "100%",
+          }}
+        />
 
-        <div className="card">
-          <div className="small">할 일 카드</div>
-          {tasks.length===0 && <div className="small">계획 만들기를 먼저 실행하세요.</div>}
-          {tasks.map((t,i)=><ToDoCard key={t.id} text={`${i+1}. ${t.text}`} done={false} />)}
+        <div style={{ textAlign: "right", marginTop: 10 }}>
+          <button
+            onClick={onGenerate}
+            style={{
+              padding: "8px 18px",
+              background: "#3b82f6",
+              color: "white",
+              borderRadius: 6,
+              border: "none",
+              cursor: "pointer",
+              fontSize: "0.9rem",
+            }}
+          >
+            🎯 계획 생성
+          </button>
         </div>
       </div>
 
-      <div className="right">
-        <div className="h1">추천 블록(미리 보기)</div>
-        <div className="card">
-          <div className="small">다음 화면에서 조립하게 됩니다.</div>
-          <div className="row" style={{marginTop:8}}>
-            {suggestions.length===0
-              ? <span className="small">계획 생성 후 확인됩니다.</span>
-              : suggestions.map((s,i)=>(
-                <span key={i} className="badge">
-                  {s.block==='when_start'?'시작(깃발)':
-                   s.block==='move_steps'?`이동(${s.params[0]})`:
-                   `말하기("${s.params[0]}", ${s.params[1]}s)`}
-                </span>
-              ))
-            }
-          </div>
-          <div className="small" style={{marginTop:8}}>힌트: 반복되는 동작이 3회 이상이면 ‘반복’으로 묶어 보세요.</div>
+      {/* 우측 패널 */}
+      <div
+        style={{
+          flex: 1.2,
+          background: "#f1f5f9",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-start", // space-between → flex-start 로 변경
+          padding: "20px 24px 40px 24px", // 아래쪽 padding 살짝 추가
+        }}
+      >
+        <div>
+          <h3 style={{ fontSize: "1.05rem", marginBottom: 10 }}>📊 학습 진행 현황</h3>
+          <ul style={{ fontSize: "0.9rem", lineHeight: 1.6, paddingLeft: 18, margin: 0 }}>
+            <li>최근 학습: 반복문 실습</li>
+            <li>진도율: 80%</li>
+            <li>남은 과제: 변수 활용</li>
+          </ul>
         </div>
+
+        <button
+          onClick={() => nav("/student/code")}
+          style={{
+            background: "#10b981",
+            color: "white",
+            border: "none",
+            borderRadius: 6,
+            padding: "10px 16px",
+            fontSize: "0.9rem",
+            cursor: "pointer",
+            alignSelf: "center",
+            width: "90%",
+            marginTop: "auto", // 화면 줄어도 버튼이 약간 위에 남음
+            marginBottom: "20px", // 버튼이 너무 밑에 붙지 않게
+          }}
+        >
+          ▶ 블록 코딩으로 이동
+        </button>
       </div>
+
+      {toast && <Toast text={toast} />}
     </div>
   )
 }
-
-// JSX 하단에:
-{toast && <Toast text={toast} />}

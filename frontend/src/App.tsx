@@ -1,70 +1,20 @@
-// src/App.tsx
-import { Outlet, Link, useLocation } from 'react-router-dom'
-import { useApp } from './store'
-import { useEffect } from 'react'
+import { Outlet, Link, useLocation } from "react-router-dom"
 
 export default function App() {
   const loc = useLocation()
-  const { setScreen } = useApp()
-
-  // ✅ useEffect 안에서만 상태 업데이트
-  useEffect(() => {
-    if (loc.pathname.includes('/student/code')) {
-      setScreen('code')
-    } else {
-      setScreen('dashboard')
-    }
-  }, [loc.pathname, setScreen])
-
-  // UI 렌더링은 단순히 상태 읽기만 하도록
-  const screen = loc.pathname.includes('/student/code') ? 'code' : 'dashboard'
+  const on = (path: string) => loc.pathname.startsWith(path)
 
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          padding: 12,
-          borderBottom: '1px solid #eee',
-          alignItems: 'center'
-        }}
-      >
-        <b>자연어→블록 학습 보조 데모</b>
-        <Link
-          to="/student/dashboard"
-          className="badge"
-          style={{
-            background: loc.pathname.includes('/student/dashboard')
-              ? '#e0f2fe'
-              : ''
-          }}
-        >
-          학생 대시보드
-        </Link>
-        <Link
-          to="/student/code"
-          className="badge"
-          style={{
-            background: loc.pathname.includes('/student/code') ? '#e0f2fe' : ''
-          }}
-        >
-          학생 코딩
-        </Link>
-        <Link
-          to="/teacher"
-          className="badge"
-          style={{
-            background: loc.pathname === '/teacher' ? '#e0f2fe' : ''
-          }}
-        >
-          교사 대시보드
-        </Link>
-        <span className="small" style={{ marginLeft: 'auto' }}>
-          현재 화면: <span className="hl">{screen}</span>
-        </span>
-      </div>
-      <Outlet />
+    <div className="page">
+      <header className="topbar">
+        <b className="brand">자연어→블록</b>
+        <nav className="nav">
+          <Link className={`navlink ${on("/student/dashboard")?"on":""}`} to="/student/dashboard">학생 대시보드</Link>
+          <Link className={`navlink ${on("/student/code")?"on":""}`} to="/student/code">학생 코딩</Link>
+          <Link className={`navlink ${on("/teacher")?"on":""}`} to="/teacher">교사 대시보드</Link>
+        </nav>
+      </header>
+      <main className="main"><Outlet /></main>
     </div>
   )
 }

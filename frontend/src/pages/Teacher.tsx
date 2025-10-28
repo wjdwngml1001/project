@@ -1,84 +1,78 @@
-import { useEffect, useState } from 'react'
-import { connectSocket } from '../realtime/socket'
+import { useEffect, useMemo, useState } from "react"
+import { connectSocket } from "../realtime/socket"
+
+type LogItem = { sid:string; type:string; time:number; meta?:any }
+type StudentState = { sid:string; screen:string; status:string; time:number }
 
 export default function Teacher() {
-  const [data, setData] = useState<any>({ thumbnails: [], misconceptions: [] })
-  const [msg, setMsg] = useState('반복되는 동작은 반복 블록으로 묶어보세요!')
-  const classId = '3A'
+  const [broadcast, setBroadcast] = useState("")
+  const [logs, setLogs] = useState<LogItem[]>([])
+  const [states, setStates] = useState<Record<string, StudentState>>({})
 
-  useEffect(() => {
-    const s = connectSocket('teacher', classId)
-    s.on('connected', () => {
-      // 연결 직후 별도 작업 필요시 작성
+  const s = useMemo(()=>connectSocket('teacher', '3A', 'T01'), [])
+  useEffect(()=>{
+    s.on('student:state', (st:StudentState)=>{
+      setStates(prev=>({...prev, [st.sid]: st}))
     })
-    s.on('overview', (payload) => {
-      setData(payload)
+    s.on('student:log', (lg:LogItem)=>{
+      setLogs(prev=>[lg, ...prev].slice(0,200))
     })
-    s.on('student:update', (u) => {
-      // 선택: 수신 즉시 UI 반영(overview 주기 브로드캐스트가 있으므로 없어도 됨)
-      setData((prev:any) => {
-        const thumbs = [...(prev.thumbnails||[])]
-        const idx = thumbs.findIndex((t:any)=>t.studentId===u.studentId)
-        if (idx>=0) thumbs[idx] = { ...thumbs[idx], screen: u.screen, status: u.status }
-        else thumbs.push({ studentId: u.studentId, screen: u.screen, status: u.status||'ok' })
-        return { ...prev, thumbnails: thumbs }
-      })
-    })
-    s.on('presence', (p) => {
-      // join/leave 이벤트 반영(선택)
-    })
-    return () => {
-      s.off('overview')
-      s.off('student:update')
-      s.off('presence')
-    }
-  }, [])
+    return ()=>{ s.off('student:state'); s.off('student:log') }
+  }, [s])
 
   function sendBroadcast() {
-    const s = connectSocket('teacher', classId)
-    s.emit('teacher:broadcast', { classId, message: msg })
-    alert('학생들에게 공지가 전송되었습니다.')
+    if(!broadcast.trim()) return
+    s.emit('teacher:broadcast', { classId:'3A', message:broadcast })
+    setBroadcast("")
   }
 
+  const list = Object.values(states).sort((a,b)=>b.time-a.time)
+
   return (
-    <div style={{padding:16}}>
-      <div className="h1">교사 대시보드 (실시간)</div>
+    <div className="teacher-layout">
+      {/* 좌측: 반/방송/요약 */}
+      <section className="panel t-left">
+        <div className="panel-header">방송 메시지</div>
+        <textarea
+          className="tinyarea"
+          placeholder="예: 모두 코드 실행을 멈추고 스택을 점검해 보세요."
+          value={broadcast}
+          onChange={e=>setBroadcast(e.target.value)}
+        />
+        <button className="btn wide" onClick={sendBroadcast}>📢 방송 보내기</button>
 
-      <div className="card">
-        <div className="small">오개념 히트맵(요약)</div>
-        <div className="row">
-          {(data.misconceptions||[]).map((m:any)=>
-            <span key={m.type} className="badge">
-              {m.type==='repeat_missing'?'반복누락': m.type==='coord_confused'?'좌표혼동':'조건내부비어있음'}: <b>{m.count}</b>
-            </span>
-          )}
-        </div>
-      </div>
+        <div className="panel-header" style={{marginTop:12}}>실시간 학생 수</div>
+        <div className="metric">{list.length} 명</div>
 
-      <div className="card">
-        <div className="small">학생 썸네일(실시간 상태)</div>
-        <div className="grid">
-          {(data.thumbnails||[]).map((t:any)=>
-            <div key={t.studentId} className="thumb">
-              {t.studentId} · {t.status==='ok'?'✅':(t.status==='slow'?'⏳':'⚠️')}
-              <span style={{marginLeft:6, fontSize:11, color:'#475569'}}>
-                ({t.screen==='code'?'코딩':'대시보드'})
-              </span>
+        <div className="panel-header" style={{marginTop:12}}>최근 로그 Top 8</div>
+        <div className="loglist">
+          {logs.slice(0,8).map((l,i)=>(
+            <div key={i} className="logrow">
+              <span className="tag">{l.sid}</span>
+              <span className="muted">{l.type}</span>
             </div>
-          )}
+          ))}
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="small">브로드캐스트</div>
-        <div className="row">
-          <input className="input" value={msg} onChange={e=>setMsg(e.target.value)} />
-          <button className="btn" onClick={sendBroadcast}>보내기</button>
+      {/* 우측: 학생 그리드 */}
+      <section className="panel t-right">
+        <div className="panel-header">학생 화면 현황</div>
+        <div className="grid">
+          {list.map(st=>(
+            <div key={st.sid} className="tile">
+              <div className="tile-top">
+                <span className="tag">{st.sid}</span>
+                <span className={`badge ${st.screen==='code'?'blue':'gray'}`}>{st.screen}</span>
+              </div>
+              <div className="muted">{new Date(st.time).toLocaleTimeString()}</div>
+              <div className="muted small">상태: {st.status}</div>
+              <button className="btn tiny" onClick={()=>s.emit('teacher:focus', {sid:st.sid})}>화면 보기</button>
+            </div>
+          ))}
+          {list.length===0 && <div className="muted">아직 접속한 학생이 없습니다.</div>}
         </div>
-        <div className="small" style={{marginTop:8}}>
-          ※ 학생 측에서는 토스트로 수신되게 연결하세요(예: StudentCode/StudentDashboard에서 'broadcast' 수신 시 Toast 표시).
-        </div>
-      </div>
+      </section>
     </div>
   )
 }
