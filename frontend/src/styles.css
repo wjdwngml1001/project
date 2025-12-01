@@ -1,62 +1,59 @@
-/* ===== Base ===== */
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { height:100%; margin:0; font-family: Pretendard, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
 .page { height:100%; display:flex; flex-direction:column; }
-.main { flex:1; min-height:0; }
+.main { flex:1; min-height:0; background:#f8fafc; }
 
-/* ===== Topbar ===== */
+/* Topbar */
 .topbar { display:flex; gap:12px; align-items:center; height:44px; padding:0 12px; border-bottom:1px solid #e5e7eb; background:#fff; }
 .brand { font-size:14px; }
 .nav { display:flex; gap:6px; }
 .navlink { font-size:13px; padding:6px 10px; border-radius:6px; text-decoration:none; color:#111; }
 .navlink.on { background:#e0f2fe; }
 
-/* ===== Panels ===== */
+/* Panels & commons */
 .panel { background:#fff; border-right:1px solid #e5e7eb; }
 .panel-header { font-size:13px; font-weight:600; padding:8px 10px; border-bottom:1px solid #f1f5f9; }
 .muted { color:#6b7280; }
 .muted.small { font-size:12px; }
+.tag { font-size:12px; padding:2px 6px; border-radius:999px; background:#eef2ff; }
 
-/* ===== StudentCode layout ===== */
+/* Student Dashboard (집중형) */
+.sd-layout { display:flex; height:calc(100vh - 44px); }
+.sd-left { flex:3.5; display:flex; flex-direction:column; padding:20px 30px 10px 30px; border-right:1px solid #e5e7eb; }
+.sd-right { flex:1.2; background:#f1f5f9; display:flex; flex-direction:column; padding:20px 24px 40px 24px; }
+.sd-btn { align-self:flex-end; padding:8px 18px; background:#2563eb; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:0.9rem; }
+.sd-textarea { flex:1; resize:none; font-size:1rem; padding:10px 12px; border-radius:6px; border:1px solid #d1d5db; background:#fff; line-height:1.5; }
+.sd-right .go { background:#10b981; color:#fff; border:none; border-radius:6px; padding:10px 16px; font-size:.9rem; cursor:pointer; align-self:center; width:90%; margin-top:auto; margin-bottom:20px; }
+
+/* Student Code */
 .code-layout { display:flex; height:calc(100vh - 44px); }
 .code-layout .left { width:360px; min-width:320px; display:flex; flex-direction:column; }
 .code-layout .right { flex:1; display:flex; flex-direction:column; min-width:0; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; padding:8px; }
 .stack.slim { padding:8px; display:flex; flex-direction:column; gap:6px; max-height:40vh; overflow:auto; }
 .stack-item { padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; font-size:13px; background:#f8fafc; }
+.toolbar.sticky { margin-top:auto; padding:8px; border-top:1px solid #f1f5f9; background:#fff; display:flex; gap:8px; flex-wrap:wrap; }
+.toolbar.rightbar { padding:8px; border-top:1px solid #f1f5f9; display:flex; gap:8px; flex-wrap:wrap; }
+.btn { padding:8px 12px; font-size:13px; border-radius:8px; border:1px solid #d1d5db; background:#2563eb; color:#fff; cursor:pointer; }
+.btn.ghost { background:#fff; color:#111; }
+.entry-mount { flex:1; min-height:0; border:1px solid #e5e7eb; border-radius:8px; margin:8px; background:#fff; }
 
-/* sticky toolbar */
-.toolbar.sticky { margin-top:auto; padding:8px; border-top:1px solid #f1f5f9; background:#fff; }
-.toolbar.rightbar { padding:8px; border-top:1px solid #f1f5f9; display:flex; gap:8px; }
-
-/* Entry mount */
-.entry-mount { flex:1; min-height:0; border:1px solid #e5e7eb; border-radius:8px; margin:8px; }
-
-/* ===== Teacher layout ===== */
+/* Teacher */
 .teacher-layout { display:flex; height:calc(100vh - 44px); }
 .t-left { width:320px; min-width:300px; padding-bottom:8px; display:flex; flex-direction:column; }
 .t-right { flex:1; display:flex; flex-direction:column; min-width:0; }
+.tinyarea { margin:8px 10px; height:90px; resize:none; border:1px solid #e5e7eb; border-radius:8px; padding:8px; font-size:13px; }
 .metric { font-size:20px; padding:8px 10px; }
-.loglist { padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
-.logrow { display:flex; gap:8px; align-items:center; font-size:13px; }
 .grid { padding:8px; display:grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr)); gap:8px; align-content:start; }
 .tile { border:1px solid #e5e7eb; border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:6px; }
 .tile-top { display:flex; justify-content:space-between; align-items:center; }
 .badge { font-size:11px; padding:2px 6px; border-radius:999px; background:#e5e7eb; }
 .badge.blue { background:#dbeafe; }
 .badge.gray { background:#e5e7eb; }
-
-/* ===== Inputs / Buttons ===== */
-.tinyarea { margin:8px 10px; height:90px; resize:none; border:1px solid #e5e7eb; border-radius:8px; padding:8px; font-size:13px; }
-.btn { padding:8px 12px; font-size:13px; border-radius:8px; border:1px solid #d1d5db; background:#2563eb; color:#fff; cursor:pointer; }
-.btn.ghost { background:#fff; color:#111; }
 .btn.wide { margin:0 10px; width:calc(100% - 20px); }
 .btn.tiny { padding:6px 8px; font-size:12px; }
-
-/* chip */
 .chip-compact { padding:6px 8px; font-size:12px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
 
-/* ===== Responsive ===== */
 @media (max-width: 980px) {
   .code-layout .left { width:300px; }
   .teacher-layout { flex-direction:column; }

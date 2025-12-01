@@ -1,10 +1,9 @@
 {
-  "name": "nl2entry-realtime-server",
-  "private": true,
-  "version": "0.1.0",
+  "name": "realtime-server",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

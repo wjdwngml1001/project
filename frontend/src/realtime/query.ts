@@ -1,4 +1,4 @@
-export function getParam(key: string, fallback?: string) {
+export function getParam(key: string, def?: string) {
   const url = new URL(window.location.href)
-  return url.searchParams.get(key) || fallback
+  return url.searchParams.get(key) ?? def ?? ''
 }

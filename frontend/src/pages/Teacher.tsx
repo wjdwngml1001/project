@@ -1,78 +1,65 @@
-import { useEffect, useMemo, useState } from "react"
-import { connectSocket } from "../realtime/socket"
+import { useEffect, useState } from 'react'
+import { connectSocket } from '../realtime/socket'
 
-type LogItem = { sid:string; type:string; time:number; meta?:any }
-type StudentState = { sid:string; screen:string; status:string; time:number }
+type StudentInfo = { id: string; name: string; lastSeen: number; thumb?: string }
 
 export default function Teacher() {
-  const [broadcast, setBroadcast] = useState("")
-  const [logs, setLogs] = useState<LogItem[]>([])
-  const [states, setStates] = useState<Record<string, StudentState>>({})
+  const [list, setList] = useState<StudentInfo[]>([])
+  const [count, setCount] = useState(0)
+  const [focus, setFocus] = useState<StudentInfo | null>(null)
+  const [msg, setMsg] = useState('')
 
-  const s = useMemo(()=>connectSocket('teacher', '3A', 'T01'), [])
-  useEffect(()=>{
-    s.on('student:state', (st:StudentState)=>{
-      setStates(prev=>({...prev, [st.sid]: st}))
+  useEffect(() => {
+    const sock = connectSocket('teacher', '3A')
+    sock.on('presence', (snap: {count:number; students: StudentInfo[]}) => {
+      setCount(snap.count)
+      setList(snap.students.sort((a,b)=> (b.lastSeen - a.lastSeen)))
     })
-    s.on('student:log', (lg:LogItem)=>{
-      setLogs(prev=>[lg, ...prev].slice(0,200))
-    })
-    return ()=>{ s.off('student:state'); s.off('student:log') }
-  }, [s])
+    return () => { sock.off('presence') }
+  }, [])
 
-  function sendBroadcast() {
-    if(!broadcast.trim()) return
-    s.emit('teacher:broadcast', { classId:'3A', message:broadcast })
-    setBroadcast("")
+  const onSend = () => {
+    const sock = connectSocket('teacher', '3A')
+    if (!msg.trim()) return
+    sock.emit('announcement', msg.trim())
+    setMsg('')
   }
 
-  const list = Object.values(states).sort((a,b)=>b.time-a.time)
-
   return (
-    <div className="teacher-layout">
-      {/* 좌측: 반/방송/요약 */}
-      <section className="panel t-left">
-        <div className="panel-header">방송 메시지</div>
-        <textarea
-          className="tinyarea"
-          placeholder="예: 모두 코드 실행을 멈추고 스택을 점검해 보세요."
-          value={broadcast}
-          onChange={e=>setBroadcast(e.target.value)}
-        />
-        <button className="btn wide" onClick={sendBroadcast}>📢 방송 보내기</button>
+    <div style={{ padding:16 }}>
+      <h2>교사 대시보드</h2>
+      <div style={{display:'flex', gap:12, alignItems:'center', marginBottom:12}}>
+        <b>현재 접속 학생 수: {count}</b>
+        <input value={msg} onChange={e=>setMsg(e.target.value)} placeholder="공지 내용 입력" style={{flex:1}} />
+        <button onClick={onSend}>공지 보내기</button>
+      </div>
 
-        <div className="panel-header" style={{marginTop:12}}>실시간 학생 수</div>
-        <div className="metric">{list.length} 명</div>
-
-        <div className="panel-header" style={{marginTop:12}}>최근 로그 Top 8</div>
-        <div className="loglist">
-          {logs.slice(0,8).map((l,i)=>(
-            <div key={i} className="logrow">
-              <span className="tag">{l.sid}</span>
-              <span className="muted">{l.type}</span>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px,1fr))', gap:12}}>
+        {list.map(s => (
+          <div key={s.id} onClick={()=> setFocus(s)}
+               style={{border:'1px solid #ddd', borderRadius:8, padding:8, cursor:'pointer', background:'#fff'}}>
+            <div style={{fontWeight:600, marginBottom:6}}>{s.name} <span style={{fontSize:12, opacity:.6}}>({s.id.slice(0,6)})</span></div>
+            <div style={{height:140, display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', borderRadius:6}}>
+              {s.thumb ? <img src={s.thumb} alt="thumb" style={{maxWidth:'100%', maxHeight:'100%'}}/> : <span style={{fontSize:12, color:'#64748b'}}>썸네일 없음</span>}
             </div>
-          ))}
-        </div>
-      </section>
+            <div style={{fontSize:12, opacity:.7, marginTop:6}}>last seen: {new Date(s.lastSeen).toLocaleTimeString()}</div>
+          </div>
+        ))}
+      </div>
 
-      {/* 우측: 학생 그리드 */}
-      <section className="panel t-right">
-        <div className="panel-header">학생 화면 현황</div>
-        <div className="grid">
-          {list.map(st=>(
-            <div key={st.sid} className="tile">
-              <div className="tile-top">
-                <span className="tag">{st.sid}</span>
-                <span className={`badge ${st.screen==='code'?'blue':'gray'}`}>{st.screen}</span>
-              </div>
-              <div className="muted">{new Date(st.time).toLocaleTimeString()}</div>
-              <div className="muted small">상태: {st.status}</div>
-              <button className="btn tiny" onClick={()=>s.emit('teacher:focus', {sid:st.sid})}>화면 보기</button>
+      {focus && (
+        <div onClick={()=>setFocus(null)} style={{
+          position:'fixed', inset:0, background:'rgba(0,0,0,.45)', display:'flex', alignItems:'center', justifyContent:'center'
+        }}>
+          <div style={{background:'#fff', padding:12, borderRadius:8, maxWidth:'90vw', maxHeight:'90vh'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+              <b>{focus.name} 화면</b>
+              <button onClick={()=>setFocus(null)}>닫기</button>
             </div>
-          ))}
-          {list.length===0 && <div className="muted">아직 접속한 학생이 없습니다.</div>}
+            {focus.thumb ? <img src={focus.thumb} style={{maxWidth:'85vw', maxHeight:'80vh'}}/> : <div>썸네일 없음</div>}
+          </div>
         </div>
-      </section>
+      )}
     </div>
   )
 }

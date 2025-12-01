@@ -1,96 +1,92 @@
-// frontend/src/entry/entryBridge.ts
-declare global {
-  interface Window { Entry?: any }
-}
-
-let ready = false
-let initStarted = false
-
-/**
- * entry.min.js <script src="..."> 의 src를 찾아
- * .../dist/ 를 기준으로 extern 경로를 추론한다.
- * 예) ../entry-js/dist/entry.min.js → ../entry-js/dist/extern/
+/** EntryJS lazy loader for /public/entry-js
+ *  - entry-js 폴더는 frontend/public/entry-js 에 존재해야 한다.
+ *  - 런타임에 /entry-js/... 경로로 로드한다(절대경로).
  */
-function detectExternLibDirFromScript(): string | null {
-  const scripts = Array.from(document.scripts) as HTMLScriptElement[]
-  // 우선순위 1: 파일명에 entry.min.js 포함
-  let entryScript = scripts.find(s => /(^|\/)entry\.min\.js(\?|$)/.test(s.src))
-  // 우선순위 2: dist/entry.js 혹은 dist/entry.*.js
-  if (!entryScript) entryScript = scripts.find(s => /\/dist\/entry(\.|-).+\.js(\?|$)/.test(s.src))
-  if (!entryScript) return null
 
-  try {
-    const url = new URL(entryScript.src, window.location.href)
-    // dist/ 까지 자르고 extern/
-    const distIndex = url.pathname.lastIndexOf('/dist/')
-    if (distIndex === -1) return null
-    const base = url.pathname.slice(0, distIndex + '/dist/'.length) // .../dist/
-    // 최종 extern/ (Entry가 내부적으로 extern/lib 를 바라봄)
-    return base + 'extern/'
-  } catch {
-    return null
-  }
-}
+let loaded = false
+let loading: Promise<void> | null = null
 
-type InitOptions = {
-  mountId?: string
-  libDir?: string // 수동 지정 시 우선
-}
-
-export function initEntry(opts: InitOptions = {}) {
-  if (initStarted) return
-  initStarted = true
-
-  const Entry = window.Entry
-  if (!Entry) {
-    console.warn(
-      '[entryBridge] EntryJS not found on window. ' +
-      'index.html에 <script src="../entry-js/dist/entry.min.js"> 가 포함되어 있는지 확인하세요.'
-    )
-    return
-  }
-
-  const mountId = opts.mountId ?? 'entryMount'
-  // 1) 사용자가 넘긴 libDir > 2) 스크립트에서 자동 감지 > 3) 합리적 기본값
-  const autoLibDir = detectExternLibDirFromScript()
-  const libDir  = opts.libDir ?? autoLibDir ?? '../entry-js/dist/extern/'
-
-  let mount = document.getElementById(mountId)
-  if (!mount) {
-    mount = document.createElement('div')
-    mount.id = mountId
-    document.body.appendChild(mount)
-  }
-
-  Entry.init(mount, {
-    libDir,               // ⭐ extern/ 까지 (엔트리는 내부적으로 extern/lib 참조)
-    isWorkspace: true,
-    useAnimation: true,
-    textCodingEnable: false,
+function injectScript(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = src
+    s.async = true
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error(`failed to load: ${src}`))
+    document.head.appendChild(s)
   })
+}
 
-  // 로드 완료 이벤트가 있는 버전이면 사용
-  try {
-    Entry.addEventListener('loadComplete', () => { ready = true })
-  } catch {
-    // 폴백: 약간의 지연 후 ready 추정
-    setTimeout(() => { ready = !!(Entry && Entry.engine) }, 700)
-  }
+function injectCss(href: string) {
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = href
+  document.head.appendChild(link)
+}
+
+export async function initEntry(opts?: { mountId?: string }) {
+  if (loaded) return
+  if (loading) return loading
+
+  const base = '/entry-js'
+  const dist = `${base}/dist`
+  const extern = `${base}/extern`
+
+  // CSS
+  injectCss(`${dist}/entry.css`)
+  injectCss(`${dist}/entry.min.css`)
+
+  // 언어
+  await injectScript(`${base}/extern/lang/ko.js`).catch(()=>{})
+
+  // 의존성 (최소 세트 — 배포본에 따라 경로 구성 상이 가능)
+  const deps = [
+    `${extern}/lodash.min.js`,
+    `${extern}/preloadjs-0.6.0.min.js`,
+    `${extern}/easeljs-0.8.0.min.js`,
+    `${extern}/soundjs-0.6.0.min.js`,
+    `${extern}/flashaudioplugin-0.6.0.min.js`,
+    `${extern}/jquery.min.js`,
+    `${extern}/jquery-ui.min.js`,
+    `${extern}/velocity.min.js`,
+    `${extern}/codemirror/lib/codemirror.js`,
+    `${extern}/codemirror/addon/hint/show-hint.js`,
+    `${extern}/codemirror/addon/lint/lint.js`,
+    `${extern}/codemirror/mode/javascript/javascript.js`,
+    `${extern}/fuzzy.js`,
+    `${extern}/filbert.js`,
+    `${extern}/CanvasInput.js`,
+    `${extern}/ndgmr.Collision.js`,
+    `${extern}/bignumber.min.js`,
+    `${extern}/util/static.js`
+  ]
+
+  loading = (async () => {
+    for (const d of deps) { try { /* eslint-disable no-await-in-loop */ await injectScript(d) } catch {} }
+    // 엔트리 엔진
+    await injectScript(`${dist}/entry.min.js`)
+    loaded = true
+
+    const mountId = opts?.mountId || 'entryMount'
+    const mount = document.getElementById(mountId)
+    if (mount && (window as any).Entry) {
+      ;(window as any).Entry.init(mount, { libDir: `${dist}`, disableHardware: true })
+    }
+  })()
+
+  return loading
 }
 
 export function isEntryReady() {
-  return !!window.Entry && ready
+  return !!(window as any).Entry
 }
 
-export function loadProjectJson(project: any) {
-  const Entry = window.Entry
-  if (!Entry) throw new Error('EntryJS not loaded')
-  if (!isEntryReady()) throw new Error('Entry not ready')
-  Entry.loadProject(project)
+export function loadProjectJson(pj: any) {
+  if (!(window as any).Entry) throw new Error('Entry not ready')
+  ;(window as any).Entry.loadProject(pj)
 }
 
-export function exportProject() {
-  const Entry = window.Entry
-  if (!Entry) throw new Error('EntryJS not loaded')
-  return Entry.exportProject()
+export function exportProject(): any {
+  if (!(window as any).Entry) throw new Error('Entry not ready')
+  return (window as any).Entry.exportProject()
 }
