@@ -1,85 +1,101 @@
-import express from 'express'
-import cors from 'cors'
-import { createServer } from 'http'
-import { Server } from 'socket.io'
+// realtime-server/index.js
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { nl2plan } from "./llm/nl2plan.js";
 
-const app = express()
-app.use(cors())
-const http = createServer(app)
-const io = new Server(http, { cors: { origin: '*' } })
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-// 메모리 상태
-const classes = new Map() // classId -> Map(studentId -> {name, lastSeen, thumb})
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST"],
+  },
+});
 
-function getClass(classId) {
-  if (!classes.has(classId)) classes.set(classId, new Map())
-  return classes.get(classId)
+// ----- LLM API: 자연어 -> 계획 생성 -----
+app.post("/api/nl2plan", async (req, res) => {
+  try {
+    const { goal, studentName } = req.body || {};
+    if (!goal || !goal.trim()) {
+      return res
+        .status(400)
+        .json({ error: "goal(학습 목표)이 비어 있습니다." });
+    }
+
+    const plan = await nl2plan({
+      goal: goal.trim(),
+      studentName: studentName || "이름 없는 학생",
+    });
+
+    return res.json(plan);
+  } catch (e) {
+    console.error("nl2plan error:", e);
+    return res.status(500).json({ error: "계획 생성 중 오류가 발생했습니다." });
+  }
+});
+
+// ----- 실시간 교사-학생 소켓 -----
+const students = new Map(); // id -> { id, name, thumb, lastSeen }
+
+function broadcastStudents(room) {
+  io.to(room).emit("teacher:students", Array.from(students.values()));
 }
 
-io.on('connection', (socket) => {
-  let classId = null
-  let studentId = null
-  let role = 'student'
+io.on("connection", (socket) => {
+  const { role, room = "3A", name = "학생", tabId } =
+    socket.handshake.query;
 
-  socket.on('register', (payload) => {
-    classId = payload.classId || '3A'
-    role = payload.role || 'student'
-    if (role === 'student') {
-      studentId = payload.studentId || socket.id
-      const c = getClass(classId)
-      c.set(studentId, { name: payload.name || '무명', lastSeen: Date.now(), thumb: null })
-      io.to(`class:${classId}`).emit('presence', snapshot(classId))
-    }
-    socket.join(`class:${classId}`)
-    if (role === 'teacher') {
-      socket.emit('presence', snapshot(classId))
-    }
-  })
+  const id = tabId || socket.id;
 
-  socket.on('student:ping', (payload) => {
-    if (!classId) return
-    const c = getClass(classId)
-    if (!studentId) studentId = payload.studentId
-    const s = c.get(studentId) || { name: payload.name || '무명', thumb: null }
-    s.lastSeen = Date.now()
-    c.set(studentId, s)
-    // 필요 시 rate-limit 가능
-  })
+  if (role === "student") {
+    socket.join(room);
+    students.set(id, {
+      id,
+      name,
+      thumb: null,
+      lastSeen: Date.now(),
+    });
+    broadcastStudents(room);
 
-  socket.on('student:thumb', (dataUrl) => {
-    if (!classId || !studentId) return
-    const c = getClass(classId)
-    const s = c.get(studentId)
-    if (s) {
-      s.thumb = dataUrl
-      s.lastSeen = Date.now()
-      io.to(`class:${classId}`).emit('presence', snapshot(classId))
-    }
-  })
+    socket.on("student:ping", (payload) => {
+      const cur = students.get(id) || { id };
+      cur.name = payload?.name || cur.name || name;
+      cur.lastSeen = Date.now();
+      students.set(id, cur);
+      broadcastStudents(room);
+    });
 
-  socket.on('announcement', (msg) => {
-    if (!classId) return
-    io.to(`class:${classId}`).emit('announcement', msg)
-  })
+    socket.on("student:thumb", (payload) => {
+      const cur = students.get(id) || { id };
+      cur.name = payload?.name || cur.name || name;
+      cur.thumb = payload?.img || cur.thumb || null;
+      cur.lastSeen = Date.now();
+      students.set(id, cur);
+      broadcastStudents(room);
+    });
 
-  socket.on('disconnect', () => {
-    if (classId && studentId) {
-      const c = getClass(classId)
-      if (c) {
-        c.delete(studentId)
-        io.to(`class:${classId}`).emit('presence', snapshot(classId))
-      }
-    }
-  })
-})
+    socket.on("disconnect", () => {
+      students.delete(id);
+      broadcastStudents(room);
+    });
+  }
 
-function snapshot(classId) {
-  const c = getClass(classId)
-  const list = Array.from(c.entries()).map(([id, s]) => ({
-    id, name: s.name, lastSeen: s.lastSeen, thumb: s.thumb
-  }))
-  return { classId, count: list.length, students: list }
-}
+  if (role === "teacher") {
+    socket.join(room);
+    socket.emit("teacher:students", Array.from(students.values()));
 
-const PORT = process.env.PORT || 7070
-http.listen(PORT, () => console.log('realtime listening on', PORT))
+    socket.on("announcement", (msg) => {
+      io.to(room).emit("announcement", msg);
+    });
+  }
+});
+
+httpServer.listen(7070, () => {
+  console.log("Realtime + LLM server on :7070");
+});

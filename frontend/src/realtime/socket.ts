@@ -1,24 +1,32 @@
-import { io, Socket } from 'socket.io-client'
+// frontend/src/realtime/socket.ts
+import { io, Socket } from "socket.io-client";
 
-let socket: Socket | null = null
+let socket: Socket | null = null;
 
-function getTabId() {
-  const k = 'tab_id'
-  let id = sessionStorage.getItem(k)
+export function tabId() {
+  let id = localStorage.getItem("tabId");
   if (!id) {
-    id = Math.random().toString(36).slice(2)
-    sessionStorage.setItem(k, id)
+    id = Math.random().toString(36).slice(2);
+    localStorage.setItem("tabId", id);
   }
-  return id
+  return id;
 }
 
-export function connectSocket(role: 'student'|'teacher', classId='3A', name?: string) {
-  if (socket) return socket
-  const base = import.meta.env.VITE_API_BASE || 'http://localhost:7070'
-  socket = io(base, { transports:['websocket'] })
-  socket.emit('register', { role, classId, studentId: getTabId(), name })
-  return socket
-}
+export function connectSocket(
+  role: "student" | "teacher",
+  room: string,
+  name: string
+) {
+  const id = tabId();
 
-export function getSocket() { return socket }
-export function tabId() { return getTabId() }
+  if (!socket) {
+    socket = io("http://localhost:7070", {
+      query: { role, room, name, tabId: id },
+    });
+  } else {
+    // 이미 연결된 소켓의 query 갱신
+    (socket.io as any).opts.query = { role, room, name, tabId: id };
+  }
+
+  return socket;
+}

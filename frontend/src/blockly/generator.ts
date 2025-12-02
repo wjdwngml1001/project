@@ -28,13 +28,16 @@ function serialize(b: Blockly.Block, out: Stmt[]) {
       out.push({ t: 'turn', dir: 'left', deg: Number(b.getFieldValue('DEG')) })
       break
     case 'goto_xy':
-      out.push({ t: 'goto', x: Number(b.getFieldValue('X')), y: Number(b.getFieldValue('Y')) })
+      out.push({
+        t: 'goto',
+        x: Number(b.getFieldValue('X')),
+        y: Number(b.getFieldValue('Y')),
+      })
       break
     case 'repeat_times': {
       const n = Number(b.getFieldValue('N'))
       const body: Stmt[] = []
-      const first = b.getInputTargetBlock('DO')
-      let cur = first
+      let cur = b.getInputTargetBlock('DO')
       while (cur) {
         serialize(cur, body)
         cur = cur.getNextBlock()
@@ -53,17 +56,13 @@ function serialize(b: Blockly.Block, out: Stmt[]) {
   if (next) serialize(next, out)
 }
 
-// ✅ 엔트리 스타일 JSON (학습용 버전)
 export function toEntryProject(ast: Stmt[]) {
   const blocks = ast.map((s, idx) => ({
     id: `b${idx + 1}`,
     type: s.t,
     params: s,
   }))
-
   return {
-    // 실제 엔트리와 100% 동일하지는 않지만, 
-    // “엔트리용 AI 추천 코드 구조”라는 연구용 목적으로 쓸 수 있는 형태
     id: `ai_entry_${Date.now()}`,
     name: 'AI 추천 블록 코드',
     scenes: [
