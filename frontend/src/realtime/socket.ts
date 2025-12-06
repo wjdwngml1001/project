@@ -1,32 +1,40 @@
 // frontend/src/realtime/socket.ts
-import { io, Socket } from "socket.io-client";
+import { io, Socket } from 'socket.io-client';
 
 let socket: Socket | null = null;
 
-export function tabId() {
-  let id = localStorage.getItem("tabId");
+/**
+ * 브라우저 "탭"마다 다른 ID 부여
+ */
+export function tabId(): string {
+  let id = sessionStorage.getItem('tabId');
   if (!id) {
-    id = Math.random().toString(36).slice(2);
-    localStorage.setItem("tabId", id);
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      id = crypto.randomUUID();
+    } else {
+      id = Math.random().toString(36).slice(2, 10);
+    }
+    sessionStorage.setItem('tabId', id);
   }
   return id;
 }
 
-export function connectSocket(
-  role: "student" | "teacher",
-  room: string,
-  name: string
-) {
-  const id = tabId();
+const REALTIME_URL =
+  import.meta.env.VITE_REALTIME_URL || 'http://localhost:7070';
 
+export function connectSocket(
+  role: 'student' | 'teacher',
+  classId: string,
+  name: string,
+): Socket {
   if (!socket) {
-    socket = io("http://localhost:7070", {
-      query: { role, room, name, tabId: id },
+    socket = io(REALTIME_URL, {
+      transports: ['websocket'],
     });
-  } else {
-    // 이미 연결된 소켓의 query 갱신
-    (socket.io as any).opts.query = { role, room, name, tabId: id };
   }
+
+  const id = tabId();
+  socket.emit('join', { role, classId, name, tabId: id });
 
   return socket;
 }

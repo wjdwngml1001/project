@@ -10,6 +10,6 @@
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
     "openai": "^6.9.1",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.8.1"
   }
 }

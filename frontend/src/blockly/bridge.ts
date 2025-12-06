@@ -1,153 +1,196 @@
 // frontend/src/blockly/bridge.ts
-import * as Blockly from "blockly";
-import "blockly/blocks";
-import "blockly/javascript";
-
-// KO 로케일 불러오기 (named export KO 가 아니라 전체를 import 하는 방식)
-import * as ko from "blockly/msg/ko";
-
-// 타입 정의에 setLocale 이 없어서 any 로 한 번 우회
-(Blockly as any).setLocale(ko as any);
+import * as Blockly from 'blockly';
+import { registerBlocks } from './blocks';
 
 let workspace: Blockly.WorkspaceSvg | null = null;
 
-// 타입 문제가 있으면 그냥 any 로 두는 편이 실전에서는 편함
-const toolbox: any = {
-  kind: "categoryToolbox",
-  contents: [
-    {
-      kind: "category",
-      name: "시작",
-      colour: "#00C853",
-      contents: [
-        { kind: "block", type: "event_whenflagclicked" },
-        { kind: "block", type: "event_whenkeypressed" },
-        { kind: "block", type: "event_whenclicked" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "흐름",
-      colour: "#00ACC1",
-      contents: [
-        { kind: "block", type: "control_wait" },
-        { kind: "block", type: "control_repeat" },
-        { kind: "block", type: "control_forever" },
-        { kind: "block", type: "control_if" },
-        { kind: "block", type: "control_if_else" },
-        { kind: "block", type: "control_stop" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "움직임",
-      colour: "#4C97FF",
-      contents: [
-        { kind: "block", type: "motion_movesteps" },
-        { kind: "block", type: "motion_turnright" },
-        { kind: "block", type: "motion_turnleft" },
-        { kind: "block", type: "motion_goto" },
-        { kind: "block", type: "motion_glidesecstoxy" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "생김새",
-      colour: "#FF4081",
-      contents: [
-        { kind: "block", type: "looks_say" },
-        { kind: "block", type: "looks_sayforsecs" },
-        { kind: "block", type: "looks_switchcostume" },
-        { kind: "block", type: "looks_changesize" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "소리",
-      colour: "#43A047",
-      contents: [
-        { kind: "block", type: "sound_play" },
-        { kind: "block", type: "sound_playuntildone" },
-        { kind: "block", type: "sound_setvolumeto" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "판단",
-      colour: "#1E88E5",
-      contents: [
-        { kind: "block", type: "logic_compare" },
-        { kind: "block", type: "logic_operation" },
-        { kind: "block", type: "logic_negate" },
-        { kind: "block", type: "logic_boolean" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "계산",
-      colour: "#FFD600",
-      contents: [
-        { kind: "block", type: "math_number" },
-        { kind: "block", type: "math_arithmetic" },
-        { kind: "block", type: "math_round" },
-        { kind: "block", type: "math_random_int" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "자료",
-      colour: "#9C27B0",
-      custom: "VARIABLE",
-    },
-    {
-      kind: "category",
-      name: "리스트",
-      colour: "#FF7043",
-      contents: [
-        { kind: "block", type: "lists_create_with" },
-        { kind: "block", type: "lists_length" },
-        { kind: "block", type: "lists_isEmpty" },
-        { kind: "block", type: "lists_getIndex" },
-        { kind: "block", type: "lists_setIndex" },
-      ],
-    },
-    {
-      kind: "category",
-      name: "함수",
-      colour: "#8D6E63",
-      custom: "PROCEDURE",
-    },
-  ],
-};
-
-export function initBlockly(divId: string) {
-  if (workspace) return;
-
-  const div = document.getElementById(divId);
-  if (!div) {
-    console.warn("blocklyDiv를 찾을 수 없습니다.");
-    return;
+export function initBlockly(divId: string): Blockly.WorkspaceSvg {
+  if (workspace) {
+    return workspace;
   }
 
-  workspace = Blockly.inject(div, {
+  // 우리가 정의한 모든 블록 등록
+  registerBlocks();
+
+  const toolbox: any = {
+    kind: 'categoryToolbox',
+    contents: [
+      /**********************
+       * 시작
+       **********************/
+      {
+        kind: 'category',
+        name: '시작',
+        colour: '#FFD500',
+        contents: [
+          { kind: 'block', type: 'event_when_flag_clicked' },
+          { kind: 'block', type: 'event_when_key_pressed' },
+          { kind: 'block', type: 'event_when_clicked' },
+        ],
+      },
+
+      /**********************
+       * 흐름
+       **********************/
+      {
+        kind: 'category',
+        name: '흐름',
+        colour: '#FFAB19',
+        contents: [
+          { kind: 'block', type: 'control_wait' },
+          { kind: 'block', type: 'control_repeat' },
+          { kind: 'block', type: 'control_forever' },
+        ],
+      },
+
+      /**********************
+       * 움직임
+       **********************/
+      {
+        kind: 'category',
+        name: '움직임',
+        colour: '#4C97FF',
+        contents: [
+          { kind: 'block', type: 'motion_movesteps' },
+          { kind: 'block', type: 'motion_turnright' },
+          { kind: 'block', type: 'motion_turnleft' },
+          { kind: 'block', type: 'motion_goto_xy' },
+        ],
+      },
+
+      /**********************
+       * 생김새
+       **********************/
+      {
+        kind: 'category',
+        name: '생김새',
+        colour: '#FF6EB4',
+        contents: [
+          { kind: 'block', type: 'looks_say' },
+          { kind: 'block', type: 'looks_say_sec' },
+          { kind: 'block', type: 'looks_hide' },
+          { kind: 'block', type: 'looks_show' },
+        ],
+      },
+
+      /**********************
+       * 소리
+       **********************/
+      {
+        kind: 'category',
+        name: '소리',
+        colour: '#CF63CF',
+        contents: [
+          { kind: 'block', type: 'sound_play' },
+          { kind: 'block', type: 'sound_play_until_done' },
+          { kind: 'block', type: 'sound_stop_all' },
+        ],
+      },
+
+      /**********************
+       * 판단
+       **********************/
+      {
+        kind: 'category',
+        name: '판단',
+        colour: '#00A651',
+        contents: [
+          { kind: 'block', type: 'logic_if' },
+          { kind: 'block', type: 'logic_if_else' },
+          { kind: 'block', type: 'logic_compare' },
+          { kind: 'block', type: 'logic_operation' },
+          { kind: 'block', type: 'logic_boolean' },
+        ],
+      },
+
+      /**********************
+       * 계산
+       **********************/
+      {
+        kind: 'category',
+        name: '계산',
+        colour: '#FFBF00', // 노란색
+        contents: [
+          { kind: 'block', type: 'operator_add' },
+          { kind: 'block', type: 'operator_subtract' },
+          { kind: 'block', type: 'operator_multiply' },
+          { kind: 'block', type: 'operator_divide' },
+          { kind: 'block', type: 'operator_random' },
+          { kind: 'block', type: 'operator_round' },
+        ],
+      },
+
+      /**********************
+       * 자료 (변수)
+       **********************/
+      {
+        kind: 'category',
+        name: '자료',
+        colour: '#9966FF', // 보라색
+        contents: [
+          { kind: 'block', type: 'data_variable' },
+          { kind: 'block', type: 'data_set_variable' },
+          { kind: 'block', type: 'data_change_variable' },
+        ],
+      },
+
+      /**********************
+       * 리스트
+       **********************/
+      {
+        kind: 'category',
+        name: '리스트',
+        colour: '#FF8000', // 주황
+        contents: [
+          { kind: 'block', type: 'list_add' },
+          { kind: 'block', type: 'list_remove' },
+          { kind: 'block', type: 'list_get' },
+        ],
+      },
+
+      /**********************
+       * 함수
+       **********************/
+      {
+        kind: 'category',
+        name: '함수',
+        colour: '#A0522D', // 갈색
+        contents: [
+          { kind: 'block', type: 'proc_definition' },
+          { kind: 'block', type: 'proc_call' },
+        ],
+      },
+    ],
+  };
+
+  workspace = Blockly.inject(divId, {
     toolbox,
-    renderer: "thrasos",
-    collapse: true,
     trashcan: true,
-    scrollbars: true,
     zoom: {
       controls: true,
       wheel: true,
+      startScale: 0.9,
+      maxScale: 1.5,
+      minScale: 0.5,
+      scaleSpeed: 1.2,
     },
-  });
-}
+    grid: {
+      spacing: 20,
+      length: 3,
+      colour: '#eee',
+      snap: true,
+    },
+  }) as Blockly.WorkspaceSvg;
 
-export function getWorkspace() {
   return workspace;
 }
 
-export function currentXml() {
-  if (!workspace) return "";
+export function getWorkspace(): Blockly.WorkspaceSvg | null {
+  return workspace;
+}
+
+export function currentXml(): string | null {
+  if (!workspace) return null;
   const dom = Blockly.Xml.workspaceToDom(workspace);
-  return Blockly.Xml.domToPrettyText(dom);
+  return Blockly.Xml.domToText(dom);
 }

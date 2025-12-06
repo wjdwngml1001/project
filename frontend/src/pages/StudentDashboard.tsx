@@ -1,212 +1,163 @@
 // frontend/src/pages/StudentDashboard.tsx
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { connectSocket } from "../realtime/socket";
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { connectSocket, tabId } from '../realtime/socket';
 
-const BASE =
-  (import.meta as any).env?.VITE_API_BASE || "http://localhost:7070";
+type BlockNode = {
+  type: string;
+  fields?: Record<string, string | number>;
+  next?: BlockNode | null;
+  inner?: BlockNode | null;
+};
+
+function makePlanAst(goal: string): BlockNode[] {
+  const lower = goal.toLowerCase();
+  const ast: BlockNode[] = [];
+
+  // 1) 시작 블록
+  if (goal.includes('스페이스') || lower.includes('space')) {
+    ast.push({
+      type: 'event_when_key_pressed',
+      fields: { KEY: 'space' },
+      next: null,
+    });
+  } else {
+    ast.push({
+      type: 'event_when_flag_clicked',
+      fields: {},
+      next: null,
+    });
+  }
+
+  // 2) 몸통 부분
+  const body: BlockNode[] = [];
+
+  if (goal.includes('인사') || goal.includes('안녕') || lower.includes('hello')) {
+    body.push({
+      type: 'looks_say',
+      fields: { TEXT: '안녕!' },
+    });
+  }
+
+  if (goal.includes('반복') || goal.includes('계속') || lower.includes('repeat')) {
+    const inner: BlockNode = body.length
+      ? { ...body[0], next: null }
+      : {
+          type: 'motion_movesteps',
+          fields: { STEPS: 10 },
+        };
+
+    ast[0].next = {
+      type: 'control_repeat',
+      fields: { TIMES: 10 },
+      inner,
+      next: null,
+    };
+  } else {
+    if (!ast[0].next && body.length) {
+      ast[0].next = { ...body[0], next: null };
+    }
+  }
+
+  return ast;
+}
+
+function makeSummary(goal: string): string {
+  if (!goal.trim()) return '학습 목표가 입력되지 않았습니다.';
+  return `입력한 목표를 바탕으로, 스프라이트가 "${goal}"를 수행할 수 있도록 기본 시작 블록과 말하기/이동/반복 구조를 추천합니다.`;
+}
 
 export default function StudentDashboard() {
+  const [name, setName] = useState('');
+  const [goal, setGoal] = useState('');
+  const [suggestText, setSuggestText] = useState('');
   const navigate = useNavigate();
 
-  const [name, setName] = useState(
-    localStorage.getItem("studentName") || ""
-  );
-  const [goal, setGoal] = useState("");
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    // 최초 한 번만 student 소켓 연결(있다면 재사용)
+    const sock = connectSocket('student', '3A', '학생-' + tabId());
+    // 굳이 핑은 StudentCode에서 보내도 되고, 여기선 계획만 전송
+    return () => {
+      // 여기서는 disconnect 하지 않음 (탭 살아있는 동안 유지)
+      sock.off('announcement');
+    };
+  }, []);
 
-  const onGenerate = async () => {
-    const trimmedName = name.trim() || "이름 없음";
-    const trimmedGoal = goal.trim();
-
-    // 1) 교사 로그인 모드
-    if (trimmedName === "교사" && trimmedGoal === "") {
-      localStorage.setItem("teacherName", trimmedName);
-      // 소켓도 교사 역할로 붙여둠
-      connectSocket("teacher", "3A", "교사");
-      alert("교사로 로그인 하였습니다.");
-      navigate("/teacher");
+  const onGenerate = () => {
+    if (!name.trim()) {
+      alert('학생 이름을 입력해 주세요.');
+      return;
+    }
+    if (!goal.trim()) {
+      alert('학습 목표를 입력해 주세요.');
       return;
     }
 
-    // 2) 일반 학생 모드
-    if (!trimmedGoal) {
-      alert(
-        "학습 목표를 입력하거나,\n교사로 로그인하려면 이름에 '교사'를 입력하고 목표를 비워두세요."
-      );
-      return;
-    }
+    const ast = makePlanAst(goal);
+    const summary = makeSummary(goal);
 
-    // 학생 이름 저장
-    setName(trimmedName);
-    localStorage.setItem("studentName", trimmedName);
+    // 학생에게 보일 "자연어 요약"
+    setSuggestText(summary);
 
-    try {
-      setLoading(true);
+    // localStorage에 현재 계획 저장 → StudentCode에서 불러와서 블록 세팅
+    const plan = { studentName: name, goalText: goal, summary, ast };
+    localStorage.setItem('currentPlan', JSON.stringify(plan));
 
-      const res = await fetch(`${BASE}/api/nl2plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goal: trimmedGoal,
-          studentName: trimmedName,
-        }),
-      });
+    // 교사에게도 현재 학생 상태(이름/목표/요약)를 소켓으로 전송
+    const sock = connectSocket('student', '3A', '학생-' + tabId());
+    sock.emit('student:plan', {
+      id: tabId(),
+      name,
+      goal,
+      summary,
+    });
 
-      if (!res.ok) {
-        throw new Error("계획 생성 API 호출 실패");
-      }
-
-      const data = await res.json();
-
-      const plan = {
-        name: trimmedName,
-        goal: trimmedGoal,
-        summary: data.summary || "AI 요약 결과가 없습니다.",
-        ast: data,
-        createdAt: Date.now(),
-      };
-
-      localStorage.setItem("studentPlan", JSON.stringify(plan));
-      setAiSummary(plan.summary);
-
-      alert("학습 계획이 생성되었습니다. 블록 화면으로 이동합니다.");
-      navigate("/student/code");
-    } catch (e) {
-      console.error(e);
-      alert("계획 생성 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
+    // 바로 코딩 화면으로 이동
+    navigate('/student/code');
   };
 
   return (
-    <div style={{ padding: 16, maxWidth: 960, margin: "0 auto" }}>
+    <div style={{ padding: 16 }}>
       <h2>학생 대시보드</h2>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.1fr 0.9fr",
-          gap: 16,
-          alignItems: "stretch",
-        }}
-      >
-        {/* 왼쪽: 입력 영역 */}
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 16,
-            background: "#f9fafb",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
-          <label style={{ fontSize: 14 }}>
-            이름 (교사는 '교사' 입력)
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <label style={{ display: 'block', marginBottom: 8 }}>
+            이름
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="예: 3학년 2반 김코딩 / 교사"
-              style={{
-                width: "100%",
-                marginTop: 4,
-                padding: 8,
-                borderRadius: 4,
-                border: "1px solid #ccc",
-              }}
+              style={{ width: '100%', marginTop: 4 }}
+              placeholder="예: 홍길동"
             />
           </label>
 
-          <label style={{ fontSize: 14 }}>
-            오늘 만들고 싶은 프로그램을 자연어로 적어보세요
+          <label style={{ display: 'block', marginBottom: 8 }}>
+            오늘의 학습 목표(자연어로 적어보세요)
             <textarea
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
-              rows={6}
-              placeholder="예: 스페이스바를 누르면 고양이가 '안녕'이라고 말하고 10걸음 앞으로 가는 프로그램"
-              style={{
-                width: "100%",
-                marginTop: 4,
-                padding: 8,
-                borderRadius: 4,
-                border: "1px solid #ccc",
-                resize: "vertical",
-              }}
+              style={{ width: '100%', height: 120, marginTop: 4 }}
+              placeholder='예: "스페이스바를 누르면 고양이가 안녕이라고 말하게 만들고 싶어요."'
             />
           </label>
 
-          <button
-            onClick={onGenerate}
-            disabled={loading}
-            style={{
-              alignSelf: "flex-end",
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "none",
-              background: "#2563eb",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "생성 중..." : "계획 생성 / 교사 로그인"}
-          </button>
+          <button onClick={onGenerate}>계획 생성 & 코딩 시작하기</button>
         </div>
 
-        {/* 오른쪽: AI 요약 + 안내 */}
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 16,
-            background: "#ffffff",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
-          <h3 style={{ fontSize: 16, margin: 0 }}>AI가 도와주는 오늘의 계획 요약</h3>
-          {aiSummary ? (
-            <p
-              style={{
-                whiteSpace: "pre-wrap",
-                fontSize: 14,
-                lineHeight: 1.5,
-              }}
-            >
-              {aiSummary}
-            </p>
-          ) : (
-            <p style={{ fontSize: 14, color: "#6b7280" }}>
-              학생은 프로그램 아이디어를 입력하고,{" "}
-              <b>“계획 생성 / 교사 로그인”</b> 버튼을 누르면
-              <br />
-              AI가 단계별 계획을 만들어주고 학생 코딩 화면에서
-              <br />
-              <b>추천 블록이 미리 채워진 상태</b>로 학습을 시작할 수 있습니다.
-              <br />
-              교사는 이름에 <b>교사</b>를 입력하고 목표를 비워둔 후 버튼을 눌러
-              <br />
-              교사 대시보드로 바로 이동할 수 있습니다.
-            </p>
-          )}
-
+        <div style={{ flex: 1 }}>
+          <h4>AI 계획 요약</h4>
           <div
             style={{
-              marginTop: "auto",
-              paddingTop: 8,
-              borderTop: "1px dashed #e5e7eb",
-              fontSize: 12,
-              color: "#6b7280",
+              border: '1px solid #ddd',
+              borderRadius: 8,
+              padding: 8,
+              minHeight: 120,
+              background: '#fafafa',
+              fontSize: 14,
             }}
           >
-            생성된 계획과 요약, 추천 블록 정보는{" "}
-            <code>localStorage.studentPlan</code>에 저장되며
-            학생 코딩 화면에서 자동으로 불러옵니다.
+            {suggestText || '계획을 생성하면 여기에서 요약과 추천 전략이 보입니다.'}
           </div>
         </div>
       </div>

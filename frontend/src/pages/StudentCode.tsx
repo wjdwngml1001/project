@@ -1,178 +1,250 @@
 // frontend/src/pages/StudentCode.tsx
-import { useEffect, useState } from "react";
-import * as Blockly from "blockly";
-import { initBlockly, getWorkspace, currentXml } from "../blockly/bridge";
-import { astFromWorkspace, toEntryProject } from "../blockly/generator";
-import { connectSocket, tabId } from "../realtime/socket";
+import { useEffect, useState } from 'react';
+import * as Blockly from 'blockly';
+import { initBlockly, getWorkspace } from '../blockly/bridge';
+import { BlockNode } from '../blockly/blocks';
+import { connectSocket, tabId } from '../realtime/socket';
 
 type StoredPlan = {
-  name: string;
-  goal: string;
+  studentName: string;
+  goalText: string;
   summary: string;
-  ast?: any;
-  createdAt: number;
+  ast: BlockNode[];
+  xml?: string;
 };
 
-function applyRecommendedBlocks(ws: Blockly.WorkspaceSvg, ast: any | null) {
+function applyAstToWorkspace(ws: Blockly.WorkspaceSvg, ast: BlockNode[]) {
   ws.clear();
 
-  let prev: Blockly.Block | null = null;
-  let first: Blockly.Block | null = null;
+  let x = 20;
+  let y = 20;
 
-  const chainBlock = (block: Blockly.Block) => {
-    (block as any).initSvg?.();
-    (block as any).render?.();
-    if (!first) first = block;
-    if (prev && prev.nextConnection && block.previousConnection) {
-      prev.nextConnection.connect(block.previousConnection);
+  const buildChain = (
+    node: BlockNode,
+    attachConn?: Blockly.Connection | null,
+    px = x,
+    py = y,
+  ): any => {
+    const block = ws.newBlock(node.type) as any;
+    if (!block) return null;
+
+    // 필드 설정
+    if (node.fields) {
+      Object.entries(node.fields).forEach(([key, val]) => {
+        try {
+          block.setFieldValue(String(val), key);
+        } catch {
+          // 해당 필드 없는 블록이면 무시
+        }
+      });
     }
-    prev = block;
+
+    block.initSvg();
+    block.render();
+
+    if (attachConn) {
+      // 이전 블록과 연결
+      attachConn.connect(block.previousConnection);
+    } else {
+      block.moveBy(px, py);
+    }
+
+    // 반복문 등 내부 블록 처리
+    if (node.inner && block.getInput('DO')) {
+      let innerNode: BlockNode | null | undefined = node.inner;
+      let prevInnerBlock: any = null;
+      const inputConn = block.getInput('DO')?.connection || null;
+
+      while (innerNode) {
+        const innerBlock = ws.newBlock(innerNode.type) as any;
+        if (innerNode.fields) {
+          Object.entries(innerNode.fields).forEach(([k, v]) => {
+            try {
+              innerBlock.setFieldValue(String(v), k);
+            } catch {}
+          });
+        }
+        innerBlock.initSvg();
+        innerBlock.render();
+
+        if (!prevInnerBlock) {
+          // 첫 번째 내부 블록은 DO에 연결
+          if (inputConn) {
+            inputConn.connect(innerBlock.previousConnection);
+          }
+        } else {
+          // 이후 블록은 앞 블록 아래에 연결
+          prevInnerBlock.nextConnection?.connect(innerBlock.previousConnection);
+        }
+
+        prevInnerBlock = innerBlock;
+        innerNode = innerNode.next || null;
+      }
+    }
+
+    // 다음 블록 체인
+    if (node.next) {
+      buildChain(node.next, block.nextConnection, px, py + 80);
+    }
+
+    return block;
   };
 
-  // 1) “시작하기 버튼을 클릭했을 때” 비슷한 시작 블록
-  const start = ws.newBlock("event_whenflagclicked");
-  chainBlock(start);
-
-  // 2) ast 내용에 따라 간단한 추천 블록 예시
-  if (ast && Array.isArray(ast.steps)) {
-    ast.steps.forEach((s: any) => {
-      let b: Blockly.Block | null = null;
-
-      switch (s.type) {
-        case "say":
-          b = ws.newBlock("looks_say");
-          b.getField("TEXT")?.setValue(s.text || "안녕!");
-          break;
-        case "move":
-          b = ws.newBlock("motion_movesteps");
-          b.getField("STEPS")?.setValue(String(s.steps || 10));
-          break;
-        case "wait":
-          b = ws.newBlock("control_wait");
-          b.getField("DURATION")?.setValue(String(s.seconds || 1));
-          break;
-        case "repeat":
-          b = ws.newBlock("control_repeat");
-          b.getField("TIMES")?.setValue(String(s.times || 5));
-          break;
-        default:
-          // 알 수 없는 스텝은 말하기 블록으로 대체
-          b = ws.newBlock("looks_say");
-          b.getField("TEXT")?.setValue(s.text || "이 블록은 나중에 채워요");
-      }
-
-      if (b) chainBlock(b);
-    });
-  } else {
-    // ast가 없으면 간단한 기본 추천 시퀀스
-    const say = ws.newBlock("looks_say");
-    say.getField("TEXT")?.setValue("안녕! 나는 엔트리 고양이야.");
-    chainBlock(say);
-
-    const move = ws.newBlock("motion_movesteps");
-    move.getField("STEPS")?.setValue("10");
-    chainBlock(move);
-
-    const wait = ws.newBlock("control_wait");
-    wait.getField("DURATION")?.setValue("1");
-    chainBlock(wait);
-  }
-
-  if (first) {
-    ws.centerOnBlock(first.id);
-  }
+  ast.forEach((node) => {
+    buildChain(node, undefined, x, y);
+    y += 120; // 다음 루트 블록은 아래쪽에 배치
+  });
 }
 
 export default function StudentCode() {
   const [ready, setReady] = useState(false);
+  const [name, setName] = useState<string>('');
+  const [goal, setGoal] = useState<string>('');
+  const [summary, setSummary] = useState<string>('');
 
   useEffect(() => {
-    // 1) Blockly 초기화 (DOM이 준비된 다음에)
-    setTimeout(() => {
-      initBlockly("blocklyDiv");
-      const ws = getWorkspace();
-      if (ws) {
-        const raw = localStorage.getItem("studentPlan");
-        let ast: any | null = null;
-        if (raw) {
-          try {
-            const obj: StoredPlan = JSON.parse(raw);
-            ast = obj.ast || null;
-          } catch (e) {
-            console.warn("studentPlan 파싱 실패", e);
-          }
+    const ws = initBlockly('blocklyDiv');
+    setReady(true);
+
+    // 1) localStorage 에 저장된 계획 불러오기
+    const stored = localStorage.getItem('currentPlan');
+    if (stored) {
+      try {
+        const plan: StoredPlan = JSON.parse(stored);
+        if (plan.studentName) setName(plan.studentName);
+        if (plan.goalText) setGoal(plan.goalText);
+        if (plan.summary) setSummary(plan.summary);
+        if (plan.ast && Array.isArray(plan.ast)) {
+          applyAstToWorkspace(ws, plan.ast);
         }
-        applyRecommendedBlocks(ws as Blockly.WorkspaceSvg, ast);
+      } catch {
+        // 파싱 실패 시 무시
       }
-      setReady(true);
-    }, 0);
+    }
 
-    // 2) 실시간 교사 대시보드용 소켓 연결
-    const studentName =
-      localStorage.getItem("studentName") || "이름 없는 학생";
-    const sock = connectSocket("student", "3A", studentName + "-" + tabId());
+    // 2) 소켓 연결 (student)
+    const sock = connectSocket('student', '3A', '학생-' + tabId());
 
-    const ping = setInterval(
-      () => sock.emit("student:ping", { id: tabId(), name: studentName }),
-      3000
-    );
+    // 주기적으로 상태 전송 (학생이 살아있다는 ping)
+    const ping = setInterval(() => {
+      const latest = localStorage.getItem('currentPlan');
+      let goalText = goal;
+      let sum = summary;
+      if (latest) {
+        try {
+          const p: StoredPlan = JSON.parse(latest);
+          if (p.goalText) goalText = p.goalText;
+          if (p.summary) sum = p.summary;
+        } catch {}
+      }
+      sock.emit('student:ping', {
+        id: tabId(),
+        name: name || '학생-' + tabId(),
+        goal: goalText,
+        summary: sum,
+      });
+    }, 5000);
 
+    // 썸네일 전송 (교사 대시보드용)
     const shot = setInterval(() => {
-      const ws = getWorkspace() as any;
-      if (!ws) return;
-      const svg = ws.getParentSvg?.();
+      const w = getWorkspace() as any;
+      if (!w) return;
+      const svg = w.getParentSvg && w.getParentSvg();
       if (!svg) return;
-      const xml = new XMLSerializer().serializeToString(svg);
+
+      let xml = new XMLSerializer().serializeToString(svg);
+
+      xml = xml.replace(/fill="#000000"/g,'fill="#ffffff"');
+      
       const svg64 = btoa(unescape(encodeURIComponent(xml)));
-      const dataUrl = "data:image/svg+xml;base64," + svg64;
-      sock.emit("student:thumb", { id: tabId(), name: studentName, img: dataUrl });
+      const dataUrl = 'data:image/svg+xml;base64,' + svg64;
+
+      const latest = localStorage.getItem('currentPlan');
+      let goalText = goal;
+      let sum = summary;
+      if (latest) {
+        try {
+          const p: StoredPlan = JSON.parse(latest);
+          if (p.goalText) goalText = p.goalText;
+          if (p.summary) sum = p.summary;
+        } catch {}
+      }
+
+      sock.emit('student:thumb', {
+        id: tabId(),
+        name: name || '학생-' + tabId(),
+        goal: goalText,
+        summary: sum,
+        thumb: dataUrl,
+      });
     }, 4000);
 
-    sock.on("announcement", (msg: string) =>
-      alert("[교사 공지]\n\n" + msg)
-    );
+    // 교사 공지 팝업
+    sock.on('announcement', (msg: string) => {
+      alert('[교사 공지]\n\n' + msg);
+    });
 
     return () => {
       clearInterval(ping);
       clearInterval(shot);
-      sock.off("announcement");
+      sock.off('announcement');
+      // sock.disconnect() 는 라우트 이동할 때마다 연결 끊어버리니 사용하지 않음
     };
   }, []);
 
   const onSave = () => {
     const ws = getWorkspace();
     if (!ws) return;
-    const ast = astFromWorkspace(ws);
-    const xml = currentXml();
-    const entry = toEntryProject(ast);
-    const stored = localStorage.getItem("studentPlan");
-    let base: any = {};
-    if (stored) {
+    const dom = Blockly.Xml.workspaceToDom(ws);
+    const xmlText = Blockly.Xml.domToText(dom);
+
+    const latest = localStorage.getItem('currentPlan');
+    let plan: StoredPlan = {
+      studentName: name,
+      goalText: goal,
+      summary,
+      ast: [],
+      xml: xmlText,
+    };
+
+    if (latest) {
       try {
-        base = JSON.parse(stored);
+        const p = JSON.parse(latest);
+        plan = {
+          studentName: p.studentName || name,
+          goalText: p.goalText || goal,
+          summary: p.summary || summary,
+          ast: p.ast || [],
+          xml: xmlText,
+        };
       } catch {
-        base = {};
+        // 무시
       }
     }
-    localStorage.setItem(
-      "studentPlan",
-      JSON.stringify({ ...base, ast, xml, entry })
-    );
-    alert("현재 계획과 블록이 저장되었습니다.");
+
+    localStorage.setItem('currentPlan', JSON.stringify(plan));
+    alert('현재 블록 상태를 저장했습니다.');
   };
 
-  const onDownloadEntryJson = () => {
+  const onDownloadJson = () => {
     const ws = getWorkspace();
     if (!ws) return;
-    const ast = astFromWorkspace(ws);
-    const entryJson = toEntryProject(ast);
+    const dom = Blockly.Xml.workspaceToDom(ws);
+    const xmlText = Blockly.Xml.domToText(dom);
 
-    const blob = new Blob([JSON.stringify(entryJson, null, 2)], {
-      type: "application/json",
+    const data = {
+      studentName: name,
+      goalText: goal,
+      summary,
+      xml: xmlText,
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json',
     });
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `entry_project_${Date.now()}.json`;
+    a.download = `plan_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -180,21 +252,32 @@ export default function StudentCode() {
   return (
     <div style={{ padding: 16 }}>
       <h2>학생 코딩 (Blockly)</h2>
+      <div style={{ marginBottom: 8, fontSize: 14 }}>
+        <div>
+          <b>{name || '학생'}</b>의 목표
+        </div>
+        <div style={{ marginTop: 4 }}>목표: {goal || '(대시보드에서 입력)'}</div>
+        <div style={{ marginTop: 4 }}>
+          요약: {summary || 'AI 요약 결과가 없습니다. (대시보드에서 계획 생성 시 표시됩니다.)'}
+        </div>
+      </div>
+
       <div
         id="blocklyDiv"
         style={{
-          width: "100%",
-          height: "70vh",
-          border: "1px solid #ddd",
+          width: '100%',
+          height: '70vh',
+          border: '1px solid #ddd',
           borderRadius: 8,
         }}
       />
-      <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
         <button disabled={!ready} onClick={onSave}>
           현재 계획 저장
         </button>
-        <button disabled={!ready} onClick={onDownloadEntryJson}>
-          엔트리 JSON 내보내기
+        <button disabled={!ready} onClick={onDownloadJson}>
+          현재 블록을 JSON으로 내보내기
         </button>
       </div>
     </div>
