@@ -1,161 +1,87 @@
 // realtime-server/index.js
-import { createServer } from 'http';
-import { Server } from 'socket.io';
+import express from 'express'
+import http from 'http'
+import { Server } from 'socket.io'
 
-const httpServer = createServer();
+const app = express()
+const server = http.createServer(app)
 
-const io = new Server(httpServer, {
+const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST'],
   },
-});
+})
 
-// 메모리 상 학생/교사 상태
-/** @type {Map<string, {id:string, classId:string, name:string, goal:string, summary:string, thumb?:string, lastPing:number}>} */
-const students = new Map();
-/** @type {Map<string, {socket:import('socket.io').Socket, classId:string}>} */
-const teachers = new Map();
+// 메모리 상 학생 목록: { socketId -> { tabId, name, goal, summary, thumb } }
+const students = new Map()
 
-/**
- * 특정 반(classId)의 현황을 모든 교사에게 전송
- */
-function broadcastTeacherState(classId) {
-  const now = Date.now();
-  const ACTIVE_MS = 15000; // 15초 이상 ping 없으면 죽은 학생으로 간주
-
-  const list = Array.from(students.values()).filter(
-    (s) => s.classId === classId && now - s.lastPing < ACTIVE_MS,
-  );
-
-  const payload = { students: list };
-
-  for (const t of teachers.values()) {
-    if (t.classId === classId) {
-      t.socket.emit('teacher:state', payload);
-    }
-  }
+function broadcastStudents() {
+  const list = Array.from(students.values())
+  io.to('teacher').emit('teacher:students', list)
 }
 
 io.on('connection', (socket) => {
-  console.log('socket connected', socket.id);
-  socket.data.role = null;
-  socket.data.classId = null;
-  socket.data.studentId = null;
+  console.log('✅ socket connected:', socket.id)
 
-  function joinClassRoom(classId) {
-    socket.join(`class:${classId}`);
-  }
-
-  // 최초 접속
   socket.on('join', ({ role, classId, name, tabId }) => {
-    const clazz = classId || 'default';
-    socket.data.role = role;
-    socket.data.classId = clazz;
+    console.log('join:', role, classId, name, tabId)
 
-    joinClassRoom(clazz);
-
-    if (role === 'student') {
-      const id = tabId || socket.id;
-      socket.data.studentId = id;
-
-      const now = Date.now();
-      students.set(id, {
-        id,
-        classId: clazz,
-        name: name || `학생-${String(id).slice(0, 4)}`,
+    if (role === 'teacher') {
+      socket.join('teacher')
+      socket.emit('teacher:students', Array.from(students.values()))
+    } else if (role === 'student') {
+      socket.join('student')
+      // 최초 접속 시 기본 정보만 저장
+      students.set(socket.id, {
+        socketId: socket.id,
+        tabId,
+        name,
         goal: '',
         summary: '',
         thumb: '',
-        lastPing: now,
-      });
-
-      console.log('[join] student', id, 'class', clazz);
-      broadcastTeacherState(clazz);
-    } else if (role === 'teacher') {
-      teachers.set(socket.id, { socket, classId: clazz });
-      console.log('[join] teacher', socket.id, 'class', clazz);
-      broadcastTeacherState(clazz);
+      })
+      broadcastStudents()
     }
-  });
+  })
 
-  // 학생 상태 ping
-  socket.on('student:ping', (data) => {
-    if (socket.data.role !== 'student') return;
+  // 학생 썸네일 업데이트
+  socket.on('student:thumb', ({ tabId, thumb }) => {
+    const s = students.get(socket.id)
+    if (s) {
+      s.thumb = thumb
+      students.set(socket.id, s)
+      broadcastStudents()
+    }
+  })
 
-    const id = socket.data.studentId || socket.id;
-    const prev = students.get(id) || {};
-    const now = Date.now();
+  // 학생 코드 / 목표 / 요약 업데이트
+  socket.on('student:code', ({ tabId, goal, summary, ast, xml }) => {
+    const s = students.get(socket.id)
+    if (s) {
+      s.goal = goal
+      s.summary = summary
+      // 필요하다면 ast, xml도 저장 가능
+      students.set(socket.id, s)
+      broadcastStudents()
+    }
+  })
 
-    // 혹시 프론트에서 name/goal을 뒤섞어서 보내더라도 최대한 안전하게 처리
-    const incomingName = data?.name ?? prev.name;
-    const incomingGoal = data?.goal ?? prev.goal;
-
-    const updated = {
-      id,
-      classId: socket.data.classId,
-      name:
-        typeof incomingName === 'string' && incomingName.trim()
-          ? incomingName.trim()
-          : prev.name || `학생-${String(id).slice(0, 4)}`,
-      goal: typeof incomingGoal === 'string' ? incomingGoal : prev.goal || '',
-      summary:
-        typeof data?.summary === 'string' ? data.summary : prev.summary || '',
-      thumb: prev.thumb,
-      lastPing: now,
-    };
-
-    students.set(id, updated);
-    broadcastTeacherState(socket.data.classId);
-  });
-
-  // 학생 썸네일
-  socket.on('student:thumb', (data) => {
-    if (socket.data.role !== 'student') return;
-
-    const id = socket.data.studentId || socket.id;
-    const prev = students.get(id);
-    if (!prev) return;
-
-    const thumb =
-      typeof data === 'string'
-        ? data
-        : typeof data?.thumb === 'string'
-        ? data.thumb
-        : prev.thumb;
-
-    const updated = {
-      ...prev,
-      thumb,
-      lastPing: Date.now(),
-    };
-
-    students.set(id, updated);
-    broadcastTeacherState(socket.data.classId);
-  });
-
-  // 교사 공지
+  // 교사 → 학생 공지
   socket.on('teacher:announcement', (msg) => {
-    if (socket.data.role !== 'teacher') return;
-    const clazz = socket.data.classId;
-    io.to(`class:${clazz}`).emit('announcement', msg);
-  });
+    io.to('student').emit('announcement', msg)
+  })
 
   socket.on('disconnect', () => {
-    console.log('socket disconnected', socket.id);
-    if (socket.data.role === 'student') {
-      const id = socket.data.studentId || socket.id;
-      const clazz = socket.data.classId;
-      if (students.has(id)) {
-        students.delete(id);
-        broadcastTeacherState(clazz);
-      }
-    } else if (socket.data.role === 'teacher') {
-      teachers.delete(socket.id);
+    console.log('❌ socket disconnected:', socket.id)
+    if (students.has(socket.id)) {
+      students.delete(socket.id)
+      broadcastStudents()
     }
-  });
-});
+  })
+})
 
-const PORT = 7070;
-httpServer.listen(PORT, () => {
-  console.log('✅ realtime-server listening on http://localhost:' + PORT);
-});
+const PORT = 7070
+server.listen(PORT, () => {
+  console.log('🚀 Realtime server listening on', PORT)
+})

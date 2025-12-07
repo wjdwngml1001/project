@@ -1,166 +1,150 @@
 // frontend/src/pages/StudentDashboard.tsx
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { connectSocket, tabId } from '../realtime/socket';
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-type BlockNode = {
-  type: string;
-  fields?: Record<string, string | number>;
-  next?: BlockNode | null;
-  inner?: BlockNode | null;
-};
-
-function makePlanAst(goal: string): BlockNode[] {
-  const lower = goal.toLowerCase();
-  const ast: BlockNode[] = [];
-
-  // 1) 시작 블록
-  if (goal.includes('스페이스') || lower.includes('space')) {
-    ast.push({
-      type: 'event_when_key_pressed',
-      fields: { KEY: 'space' },
-      next: null,
-    });
-  } else {
-    ast.push({
-      type: 'event_when_flag_clicked',
-      fields: {},
-      next: null,
-    });
-  }
-
-  // 2) 몸통 부분
-  const body: BlockNode[] = [];
-
-  if (goal.includes('인사') || goal.includes('안녕') || lower.includes('hello')) {
-    body.push({
-      type: 'looks_say',
-      fields: { TEXT: '안녕!' },
-    });
-  }
-
-  if (goal.includes('반복') || goal.includes('계속') || lower.includes('repeat')) {
-    const inner: BlockNode = body.length
-      ? { ...body[0], next: null }
-      : {
-          type: 'motion_movesteps',
-          fields: { STEPS: 10 },
-        };
-
-    ast[0].next = {
-      type: 'control_repeat',
-      fields: { TIMES: 10 },
-      inner,
-      next: null,
-    };
-  } else {
-    if (!ast[0].next && body.length) {
-      ast[0].next = { ...body[0], next: null };
-    }
-  }
-
-  return ast;
+type PlanBlock = {
+  type: string
+  fields?: Record<string, any>
 }
 
-function makeSummary(goal: string): string {
-  if (!goal.trim()) return '학습 목표가 입력되지 않았습니다.';
-  return `입력한 목표를 바탕으로, 스프라이트가 "${goal}"를 수행할 수 있도록 기본 시작 블록과 말하기/이동/반복 구조를 추천합니다.`;
+/** 간단 규칙 기반 계획 생성 (HTTP / LLM 없이도 항상 동작) */
+function makeFallbackPlan(goal: string, name: string): {
+  summary: string
+  blocks: PlanBlock[]
+} {
+  const g = goal || '고양이가 인사하는 프로그램'
+
+  let blocks: PlanBlock[] = []
+
+  if (g.includes('스페이스') || g.includes('스페이스바')) {
+    // 스페이스바 입력 → 키 이벤트 + 말하기
+    blocks = [
+      { type: 'event_when_key_pressed', fields: { KEY: 'space' } },
+      { type: 'looks_say', fields: { TEXT: '안녕!' } },
+    ]
+  } else if (g.includes('오른쪽') || g.includes('시계')) {
+    // 회전 관련 목표
+    blocks = [
+      { type: 'event_when_flag_clicked' },
+      { type: 'control_repeat', fields: { TIMES: 4 } },
+      { type: 'motion_turnright', fields: { DEG: 90 } },
+    ]
+  } else if (g.includes('반복') || g.includes('여러 번')) {
+    blocks = [
+      { type: 'event_when_flag_clicked' },
+      { type: 'control_repeat', fields: { TIMES: 10 } },
+      { type: 'motion_movesteps', fields: { STEPS: 10 } },
+    ]
+  } else {
+    // 기본 인사 시나리오
+    blocks = [
+      { type: 'event_when_flag_clicked' },
+      { type: 'looks_say', fields: { TEXT: '시작!' } },
+    ]
+  }
+
+  const summary =
+    `${name || '학생'}의 자연어 목표를 분석하여 ` +
+    `이벤트 블록과 움직임/생김새 블록을 중심으로 기본 구조를 구성했습니다.`
+
+  return { summary, blocks }
 }
 
 export default function StudentDashboard() {
-  const [name, setName] = useState('');
-  const [goal, setGoal] = useState('');
-  const [suggestText, setSuggestText] = useState('');
-  const navigate = useNavigate();
+  const [name, setName] = useState('')
+  const [goal, setGoal] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    // 최초 한 번만 student 소켓 연결(있다면 재사용)
-    const sock = connectSocket('student', '3A', '학생-' + tabId());
-    // 굳이 핑은 StudentCode에서 보내도 되고, 여기선 계획만 전송
-    return () => {
-      // 여기서는 disconnect 하지 않음 (탭 살아있는 동안 유지)
-      sock.off('announcement');
-    };
-  }, []);
-
-  const onGenerate = () => {
-    if (!name.trim()) {
-      alert('학생 이름을 입력해 주세요.');
-      return;
-    }
+  const onGeneratePlan = async () => {
     if (!goal.trim()) {
-      alert('학습 목표를 입력해 주세요.');
-      return;
+      alert('학습 목표를 입력해 주세요.')
+      return
     }
 
-    const ast = makePlanAst(goal);
-    const summary = makeSummary(goal);
+    setLoading(true)
 
-    // 학생에게 보일 "자연어 요약"
-    setSuggestText(summary);
+    // === 1) LLM 없이 로컬 규칙 기반으로 항상 계획 생성 ===
+    const { summary, blocks } = makeFallbackPlan(goal, name)
 
-    // localStorage에 현재 계획 저장 → StudentCode에서 불러와서 블록 세팅
-    const plan = { studentName: name, goalText: goal, summary, ast };
-    localStorage.setItem('currentPlan', JSON.stringify(plan));
-
-    // 교사에게도 현재 학생 상태(이름/목표/요약)를 소켓으로 전송
-    const sock = connectSocket('student', '3A', '학생-' + tabId());
-    sock.emit('student:plan', {
-      id: tabId(),
+    // === 2) StudentCode / Teacher가 함께 쓰는 plan 저장 ===
+    const stored = {
       name,
       goal,
       summary,
-    });
+      ast: blocks,
+      xml: '', // 실제 블록을 찍은 후에 StudentCode에서 다시 저장 가능
+    }
+    localStorage.setItem('studentPlan', JSON.stringify(stored))
 
-    // 바로 코딩 화면으로 이동
-    navigate('/student/code');
-  };
+    // UX상 살짝 딜레이 후 이동 (로딩 느낌만)
+    setTimeout(() => {
+      setLoading(false)
+      navigate('/student/code')
+    }, 400)
+  }
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16, maxWidth: 800, margin: '0 auto' }}>
       <h2>학생 대시보드</h2>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ display: 'block', marginBottom: 8 }}>
-            이름
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', marginTop: 4 }}
-              placeholder="예: 홍길동"
-            />
-          </label>
-
-          <label style={{ display: 'block', marginBottom: 8 }}>
-            오늘의 학습 목표(자연어로 적어보세요)
-            <textarea
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              style={{ width: '100%', height: 120, marginTop: 4 }}
-              placeholder='예: "스페이스바를 누르면 고양이가 안녕이라고 말하게 만들고 싶어요."'
-            />
-          </label>
-
-          <button onClick={onGenerate}>계획 생성 & 코딩 시작하기</button>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          marginTop: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div>
+          <label style={{ display: 'block', marginBottom: 4 }}>이름</label>
+          <input
+            style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+            placeholder="이름을 입력하세요."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
 
-        <div style={{ flex: 1 }}>
-          <h4>AI 계획 요약</h4>
-          <div
+        <div>
+          <label style={{ display: 'block', marginBottom: 4 }}>학습 목표 (자연어)</label>
+          <textarea
             style={{
-              border: '1px solid #ddd',
-              borderRadius: 8,
+              width: '100%',
+              minHeight: 80,
               padding: 8,
-              minHeight: 120,
-              background: '#fafafa',
-              fontSize: 14,
+              borderRadius: 4,
+              border: '1px solid #ccc',
+              resize: 'vertical',
             }}
-          >
-            {suggestText || '계획을 생성하면 여기에서 요약과 추천 전략이 보입니다.'}
-          </div>
+            placeholder="예) 스페이스바를 누르면 고양이가 '안녕'이라고 말하게 만들고 싶어요."
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+          />
         </div>
+
+        <button
+          onClick={onGeneratePlan}
+          disabled={loading}
+          style={{
+            padding: '10px 16px',
+            borderRadius: 6,
+            border: 'none',
+            background: loading ? '#9ca3af' : '#2563eb',
+            color: '#fff',
+            fontWeight: 600,
+            cursor: loading ? 'default' : 'pointer',
+          }}
+        >
+          {loading ? 'AI가 계획을 만드는 중…' : '계획 생성하고 코딩 화면으로 이동'}
+        </button>
       </div>
+
+      <p style={{ fontSize: 13, color: '#666' }}>
+        ※ 현재 프로토타입은 간단한 규칙 기반으로 블록 계획을 자동 생성합니다.
+        추후 OpenAI API 등을 연동하여 실제 LLM이 계획과 블록 구조를 생성하도록 확장할 수 있습니다.
+      </p>
     </div>
-  );
+  )
 }
