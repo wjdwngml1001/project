@@ -43,6 +43,11 @@ export default function StudentCode() {
     const ws = initBlockly('blocklyDiv') as Blockly.WorkspaceSvg;
     setReady(true);
 
+    // 🔄 중복 추천 블록 방지:
+    // StrictMode 때문에 effect가 두 번 돌 수 있으므로,
+    // AST를 다시 그리기 전에 항상 워크스페이스를 비워준다.
+    ws.clear();
+
     // 저장된 AST가 있으면 간단히 다시 그려주기
     if (parsed.ast && Array.isArray(parsed.ast)) {
       parsed.ast.forEach((b: any) => {

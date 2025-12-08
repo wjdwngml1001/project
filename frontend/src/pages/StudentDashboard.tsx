@@ -7,7 +7,8 @@ type PlanBlock = {
   fields?: Record<string, any>;
 };
 
-// 간단 규칙 기반 계획 생성
+// ── 규칙 기반 fallback 계획 ─────────────────────
+//  (LLM 실패하거나 서버가 규칙 기반으로 응답했을 때 사용)
 function makeFallbackPlan(goal: string, name: string): {
   summary: string;
   blocks: PlanBlock[];
@@ -18,14 +19,13 @@ function makeFallbackPlan(goal: string, name: string): {
 
   if (g.includes('스페이스') || g.includes('스페이스바')) {
     blocks = [
-      { type: 'event_when_key_pressed', fields: { KEY: 'space' } },
-      { type: 'looks_say', fields: { TEXT: '안녕!' } },
+      { type: 'event_when_key_pressed', fields: { KEY: 'SPACE' } },
     ];
   } else if (g.includes('오른쪽') || g.includes('시계')) {
+    // ✅ blocks.ts 의 타입 이름과 맞춤
     blocks = [
       { type: 'event_when_flag_clicked' },
-      { type: 'control_repeat', fields: { TIMES: 4 } },
-      { type: 'motion_turnright', fields: { DEG: 90 } },
+      { type: 'motion_turn_right', fields: { DEG: 90 } },
     ];
   } else if (g.includes('반복') || g.includes('여러 번')) {
     blocks = [
@@ -36,15 +36,64 @@ function makeFallbackPlan(goal: string, name: string): {
   } else {
     blocks = [
       { type: 'event_when_flag_clicked' },
-      { type: 'looks_say', fields: { TEXT: '시작!' } },
     ];
   }
 
   const summary =
-    `${name || '학생'}의 자연어 목표를 분석하여 ` +
-    `이벤트 블록과 움직임/생김새 블록을 중심으로 기본 구조를 구성했습니다.`;
+    `${name || '학생'}의 자연어 목표를 간단 규칙으로 분석하여 ` +
+    `시작 블록과 기본 동작 블록을 추천했습니다. ` +
+    `필요한 움직임/생김새/흐름 블록은 왼쪽 카테고리에서 직접 찾아 사용해 보세요.`;
 
   return { summary, blocks };
+}
+
+// ── LLM 호출 함수 ───────────────────────────────
+const BASE =
+  import.meta.env.VITE_REALTIME_URL || 'http://localhost:7070';
+
+async function callNl2Plan(name: string, goal: string) {
+  try {
+    const res = await fetch(`${BASE}/api/nl2plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, goal }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`status ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data || !Array.isArray(data.blocks)) {
+      throw new Error('invalid data');
+    }
+
+    // 혹시 LLM이 KEY를 "space" 같이 소문자로 줄 수도 있으니 한 번 정규화
+    data.blocks.forEach((b: any) => {
+      if (b.type === 'event_when_key_pressed' && b.fields?.KEY) {
+        const v = String(b.fields.KEY).toLowerCase();
+        if (v === 'space' || v === '스페이스바' || v === '스페이스') {
+          b.fields.KEY = 'SPACE';
+        } else if (v === 'up' || v === '위' || v === '위쪽 화살표') {
+          b.fields.KEY = 'UP';
+        } else if (v === 'down' || v === '아래' || v === '아래쪽 화살표') {
+          b.fields.KEY = 'DOWN';
+        } else if (v === 'left' || v === '왼쪽 화살표') {
+          b.fields.KEY = 'LEFT';
+        } else if (v === 'right' || v === '오른쪽 화살표') {
+          b.fields.KEY = 'RIGHT';
+        }
+      }
+    });
+
+    return {
+      summary: data.summary as string,
+      blocks: data.blocks as PlanBlock[],
+    };
+  } catch (e) {
+    console.warn('LLM 호출 실패, 규칙 기반으로 대체', e);
+    return null;
+  }
 }
 
 export default function StudentDashboard() {
@@ -61,8 +110,13 @@ export default function StudentDashboard() {
 
     setLoading(true);
 
-    const { summary, blocks } = makeFallbackPlan(goal, name);
+    // 1) LLM 먼저 시도
+    const llmResult = await callNl2Plan(name, goal);
 
+    const { summary, blocks } =
+      llmResult ?? makeFallbackPlan(goal, name);
+
+    // 2) StudentCode / Teacher 공통으로 쓰는 저장 형식
     const stored = {
       name,
       goal,
@@ -72,10 +126,8 @@ export default function StudentDashboard() {
     };
     localStorage.setItem('studentPlan', JSON.stringify(stored));
 
-    setTimeout(() => {
-      setLoading(false);
-      navigate('/student/code');
-    }, 400);
+    setLoading(false);
+    navigate('/student/code');
   };
 
   return (
@@ -136,8 +188,8 @@ export default function StudentDashboard() {
       </div>
 
       <p style={{ fontSize: 13, color: '#666' }}>
-        ※ 현재 프로토타입은 간단한 규칙 기반으로 블록 계획을 자동 생성합니다.
-        추후 OpenAI API 등을 연동하여 실제 LLM이 계획과 블록 구조를 생성하도록 확장할 수 있습니다.
+        ※ 현재는 OpenAI LLM을 우선 사용하여 "시작 블록"과 추천 카테고리를 생성하고,
+        실패 시 간단한 규칙 기반 계획으로 대체합니다.
       </p>
     </div>
   );
