@@ -29,7 +29,7 @@
 ---
 
 ## 📂 프로젝트 구성
-
+```bash
 project/
 ├── frontend/ # React + Vite + Typescript + Blockly
 │ ├── src/
@@ -43,7 +43,7 @@ project/
   ├── index.js # LLM API + 실시간 소켓 서버
   ├── server.js # 서버
   └── package.json
-
+```
 
 ---
 
