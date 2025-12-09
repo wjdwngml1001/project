@@ -53,35 +53,38 @@ project/
 ```bash
 git clone https://github.com/<your-id>/<repo>.git
 cd project
-
+```
 ---
 
 ▶ 실시간 서버 실행 (Node + Socket.IO + OpenAI)
+```bash
 cd realtime-server
 npm install
-
-🔑 OpenAI API 키 설정
-
-OPENAI_API_KEY=sk-xxxxxx
+```
+🔑 서버 실행 및 OPEN_API 설정(현재는 제 개인 키를 사용 중입니다.)
 
 서버 실행
+```bash
 set OPENAI_API_KEY=(.env 파일에 있는 키 복사붙여넣기) && node index.js
-
+```
 
 실행되면)
+```bash
 realtime-server listening on 7070
-
+```
 ---
 
 ▶ 프론트엔드 실행 (React + Vite)
+```bash
 cd frontend
 npm install
 npm run dev
-
+```
 
 실행 후 브라우저에서 아래 주소로 접속합니다.
+```bash
 http://localhost:5173/
-
+```
 ---
 
 🎮 사용 방법
