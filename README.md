@@ -152,7 +152,7 @@ OpenAI GPT API (gpt-4o-mini)
 SW·AI 융합 교육 도구로 확장 가능성 큼
 
 
---
+---
 
 프로젝트 문의
 wjdwngml1001@khu.ac.kr
