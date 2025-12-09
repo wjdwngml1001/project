@@ -56,25 +56,25 @@ cd project
 ```
 ---
 
-▶ 실시간 서버 실행 (Node + Socket.IO + OpenAI)
+### 2. 실시간 서버 실행 (Node + Socket.IO + OpenAI)
 ```bash
 cd realtime-server
 npm install
 ```
-🔑 서버 실행 및 OPEN_API 설정(현재는 제 개인 키를 사용 중입니다.)
+🔑 서버 실행 및 OPEN_API 설정(현재는 제 개인 키를 사용 중입니다. KEY가 필요하다면 제 메일로 연락 부탁드립니다.)
 
 서버 실행
 ```bash
 set OPENAI_API_KEY=(키 복사붙여넣기) && node index.js
 ```
-KEY가 필요하다면 제 메일로 연락 부탁드립니다.
-실행되면)
+
+실행되면 cmd에 다음과 같이 뜬다.
 ```bash
 realtime-server listening on 7070
 ```
 ---
 
-▶ 프론트엔드 실행 (React + Vite)
+### 3. 프론트엔드 실행 (React + Vite)
 ```bash
 cd frontend
 npm install
@@ -87,9 +87,9 @@ http://localhost:5173/
 ```
 ---
 
-🎮 사용 방법
+## 🎮 사용 방법
 
-1. 학생 모드
+### 1. 학생 모드
 
 브라우저에서 /student 또는 “학생 대시보드” 진입
 이름과 자연어 목표 입력
@@ -98,7 +98,7 @@ http://localhost:5173/
 Blockly로 자유롭게 블록 조립
 원하는 경우 JSON 파일로 내보내기 가능
 
-2. 교사 모드
+### 2. 교사 모드
 
 브라우저에서 /teacher 페이지로 이동
 학생들이 접속할 때 자동으로 리스트에 표시됨
@@ -106,7 +106,7 @@ Blockly로 자유롭게 블록 조립
 클릭하면 팝업으로 크게 볼 수 있음
 공지 입력 → 모든 학생에게 팝업 알림 전송
 
-💡 기술 스택
+## 💡 기술 스택
 
 Frontend
 
@@ -127,7 +127,7 @@ socket.io
 OpenAI GPT API (gpt-4o-mini)
 
 
-🤖 LLM 활용 방식
+## 🤖 LLM 활용 방식
 
 서버에서 /api/nl2plan API로 LLM 호출
 
@@ -141,7 +141,7 @@ OpenAI GPT API (gpt-4o-mini)
 실패 시 규칙 기반 fall-back 적용
 
 
-📈 기대 효과
+## 📈 기대 효과
 
 초등 학생의 블록코딩 접근성 향상
 
@@ -154,5 +154,5 @@ SW·AI 융합 교육 도구로 확장 가능성 큼
 
 ---
 
-프로젝트 문의
+### 프로젝트 문의
 wjdwngml1001@khu.ac.kr
