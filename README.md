@@ -51,7 +51,7 @@ project/
 
 ### 1. 저장소 Clone
 ```bash
-git clone https://github.com/<your-id>/<repo>.git
+git clone https://github.com/wjdwngml1001/project.git
 cd project
 ```
 ---
