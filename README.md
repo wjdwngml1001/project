@@ -65,9 +65,9 @@ npm install
 
 서버 실행
 ```bash
-set OPENAI_API_KEY=(.env 파일에 있는 키 복사붙여넣기) && node index.js
+set OPENAI_API_KEY=(키 복사붙여넣기) && node index.js
 ```
-
+KEY가 필요하다면 제 메일로 연락 부탁드립니다.
 실행되면)
 ```bash
 realtime-server listening on 7070

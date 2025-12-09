@@ -394,3 +394,5 @@ const PORT = process.env.PORT || 7070;
 httpServer.listen(PORT, () => {
   console.log('realtime-server listening on', PORT);
 });
+
+//반갑습니다.
